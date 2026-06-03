@@ -1,0 +1,12 @@
+# Example category-mapping.txt
+# Format: skill-name | Category Name
+# Lines starting with # are comments
+# Add your own skills here. Unmapped skills will be auto-categorized.
+#
+# Run: python regenerate.py --with-usage
+# It will scan all ~/.claude/skills/*/SKILL.md and auto-categorize any
+# skills not listed here.
+
+# Example entries (replace with your actual skills):
+# my-skill-name | Planning & Design
+# another-skill | Implementation

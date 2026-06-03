@@ -1,0 +1,16 @@
+# Generated catalog files (contain personal usage data and skill content)
+catalog.json
+catalog.md
+catalog.html
+
+# Python cache
+__pycache__/
+*.pyc
+
+# User's actual category mapping (contains personal skill names)
+# Keep only the example template; rename to use:
+# category-mapping.txt
+
+# OS files
+.DS_Store
+Thumbs.db

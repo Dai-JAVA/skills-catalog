@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Skill Catalog - Claude Code</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#fafbfc;--surface:#fff;--text:#1a1a2e;--text2:#64748b;--border:#e2e8f0;--accent:#2563eb;--accent-h:#1d4ed8;--card-bg:#fff;--card-border:#e2e8f0;--card-shadow:0 1px 3px rgba(0,0,0,.06);--card-hover:0 4px 12px rgba(0,0,0,.1);--sidebar-bg:#f1f5f9;--sidebar-active:#e0e7ff;--sidebar-text:#475569;--sidebar-active-text:#1e40af;--chip-bg:#f1f5f9;--chip-text:#475569;--badge-local-bg:#dcfce7;--badge-local-text:#166534;--badge-builtin-bg:#fef3c7;--badge-builtin-text:#92400e;--input-bg:#fff;--input-border:#cbd5e1;--input-focus:#2563eb;--overlay:rgba(0,0,0,.4);--danger:#dc2626;--danger-hover:#b91c1c;--toast-bg:#1e293b;--toast-text:#e2e8f0;--radius:8px;--radius-lg:12px}
+@media(prefers-color-scheme:dark){:root{--bg:#0f172a;--surface:#1e293b;--text:#e2e8f0;--text2:#94a3b8;--border:#334155;--accent:#60a5fa;--accent-h:#93bbfd;--card-bg:#1e293b;--card-border:#334155;--card-shadow:0 1px 3px rgba(0,0,0,.3);--card-hover:0 4px 12px rgba(0,0,0,.4);--sidebar-bg:#1e293b;--sidebar-active:#1e3a5f;--sidebar-text:#94a3b8;--sidebar-active-text:#93bbfd;--chip-bg:#334155;--chip-text:#cbd5e1;--badge-local-bg:#14532d;--badge-local-text:#86efac;--badge-builtin-bg:#713f12;--badge-builtin-text:#fde68a;--input-bg:#1e293b;--input-border:#475569;--input-focus:#60a5fa;--overlay:rgba(0,0,0,.6);--toast-bg:#334155;--toast-text:#e2e8f0}}
+[data-theme=light]{--bg:#fafbfc;--surface:#fff;--text:#1a1a2e;--text2:#64748b;--border:#e2e8f0;--accent:#2563eb;--accent-h:#1d4ed8;--card-bg:#fff;--card-border:#e2e8f0;--card-shadow:0 1px 3px rgba(0,0,0,.06);--card-hover:0 4px 12px rgba(0,0,0,.1);--sidebar-bg:#f1f5f9;--sidebar-active:#e0e7ff;--sidebar-text:#475569;--sidebar-active-text:#1e40af;--chip-bg:#f1f5f9;--chip-text:#475569;--badge-local-bg:#dcfce7;--badge-local-text:#166534;--badge-builtin-bg:#fef3c7;--badge-builtin-text:#92400e;--input-bg:#fff;--input-border:#cbd5e1;--input-focus:#2563eb;--overlay:rgba(0,0,0,.4);--toast-bg:#1e293b;--toast-text:#e2e8f0}
+[data-theme=dark]{--bg:#0f172a;--surface:#1e293b;--text:#e2e8f0;--text2:#94a3b8;--border:#334155;--accent:#60a5fa;--accent-h:#93bbfd;--card-bg:#1e293b;--card-border:#334155;--card-shadow:0 1px 3px rgba(0,0,0,.3);--card-hover:0 4px 12px rgba(0,0,0,.4);--sidebar-bg:#1e293b;--sidebar-active:#1e3a5f;--sidebar-text:#94a3b8;--sidebar-active-text:#93bbfd;--chip-bg:#334155;--chip-text:#cbd5e1;--badge-local-bg:#14532d;--badge-local-text:#86efac;--badge-builtin-bg:#713f12;--badge-builtin-text:#fde68a;--input-bg:#1e293b;--input-border:#475569;--input-focus:#60a5fa;--overlay:rgba(0,0,0,.6);--toast-bg:#334155;--toast-text:#e2e8f0}
+body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;min-height:100vh}
+.app{display:flex;min-height:100vh}
+.sidebar{width:220px;flex-shrink:0;background:var(--sidebar-bg);border-right:1px solid var(--border);padding:16px 0;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto;z-index:20}
+.sidebar-logo{padding:0 14px 14px;font-weight:700;font-size:14px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border);margin-bottom:6px}
+.sidebar-item{display:flex;align-items:center;gap:6px;padding:7px 14px;cursor:pointer;transition:background .15s;color:var(--sidebar-text);font-size:12px;border:none;background:none;width:100%;text-align:left;font-family:inherit}
+.sidebar-item:hover{background:var(--sidebar-active);color:var(--sidebar-active-text)}
+.sidebar-item.active{background:var(--sidebar-active);color:var(--sidebar-active-text);font-weight:600}
+.sidebar-count{margin-left:auto;font-size:10px;background:var(--chip-bg);padding:1px 6px;border-radius:10px}
+.sidebar-footer{margin-top:auto;padding:10px 14px;border-top:1px solid var(--border);font-size:10px;color:var(--text2)}
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.header{padding:18px 28px 0;position:sticky;top:0;background:var(--bg);z-index:10}
+.header-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;flex-wrap:wrap}
+.header-title{font-size:20px;font-weight:700}
+.header-stats{font-size:12px;color:var(--text2)}
+.header-actions{display:flex;gap:8px;align-items:center}
+.search-wrap{position:relative;flex:1;max-width:420px;min-width:200px}
+.search-icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text2);pointer-events:none}
+.search-input{width:100%;padding:7px 10px 7px 32px;border:1px solid var(--input-border);border-radius:var(--radius);background:var(--input-bg);color:var(--text);font-size:13px;font-family:inherit}
+.search-input:focus{outline:none;border-color:var(--input-focus);box-shadow:0 0 0 3px rgba(37,99,235,.15)}
+.search-input::placeholder{color:var(--text2)}
+.search-shortcut{position:absolute;right:7px;top:50%;transform:translateY(-50%);font-size:9px;color:var(--text2);background:var(--chip-bg);padding:1px 4px;border-radius:3px;font-family:monospace;pointer-events:none}
+.theme-btn,.refresh-btn{width:32px;height:32px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:background .2s;color:var(--text);flex-shrink:0}
+.theme-btn:hover,.refresh-btn:hover{background:var(--sidebar-bg)}
+.pill-bar{display:flex;gap:5px;flex-wrap:wrap;padding-bottom:14px;border-bottom:1px solid var(--border)}
+.pill{padding:4px 10px;border-radius:16px;font-size:11px;border:1px solid var(--border);background:var(--surface);color:var(--text2);cursor:pointer;transition:all .15s;white-space:nowrap;font-family:inherit}
+.pill:hover{border-color:var(--accent);color:var(--accent)}
+.pill.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.content{padding:16px 28px 32px;overflow-y:auto;flex:1}
+.card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
+.card{background:var(--card-bg);border:1px solid var(--card-border);border-radius:var(--radius-lg);padding:14px;box-shadow:var(--card-shadow);transition:box-shadow .2s,transform .15s;display:flex;flex-direction:column;gap:8px;cursor:pointer}
+.card:hover{box-shadow:var(--card-hover);transform:translateY(-1px)}
+.card-header{display:flex;align-items:flex-start;justify-content:space-between;gap:6px}
+.card-name{font-size:14px;font-weight:600;font-family:monospace;color:var(--accent)}
+.card-badges{display:flex;gap:4px;flex-shrink:0}
+.badge{font-size:9px;padding:2px 5px;border-radius:3px;font-weight:600;text-transform:uppercase}
+.badge-local{background:var(--badge-local-bg);color:var(--badge-local-text)}
+.badge-builtin{background:var(--badge-builtin-bg);color:var(--badge-builtin-text)}
+.card-desc{font-size:12px;color:var(--text2);line-height:1.5;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.card-chips{display:flex;flex-wrap:wrap;gap:3px;margin-top:auto}
+.chip{font-size:9px;padding:2px 7px;border-radius:10px;background:var(--chip-bg);color:var(--chip-text);white-space:nowrap;max-width:130px;overflow:hidden;text-overflow:ellipsis}
+.card-footer{display:flex;align-items:center;justify-content:space-between;font-size:10px;color:var(--text2);margin-top:4px}
+.card-footer code{font-family:monospace;font-size:10px;background:var(--chip-bg);padding:1px 4px;border-radius:3px}
+.usage-bar{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text2);padding-top:4px;border-top:1px solid var(--border);margin-top:2px}
+.usage-count{font-weight:700;color:var(--accent)}
+.usage-sessions{font-size:9px;color:var(--text2);margin-left:auto;cursor:pointer}
+.usage-sessions:hover{color:var(--accent);text-decoration:underline}
+.detail-overlay{display:none;position:fixed;inset:0;background:var(--overlay);z-index:50}
+.detail-overlay.show{display:block}
+.detail-panel{position:fixed;top:0;right:0;width:520px;max-width:100vw;height:100vh;background:var(--surface);border-left:1px solid var(--border);z-index:51;overflow-y:auto;transform:translateX(100%);transition:transform .25s ease}
+.detail-panel.show{transform:translateX(0)}
+.detail-inner{padding:24px}
+.detail-close{position:absolute;top:12px;right:12px;width:32px;height:32px;border:1px solid var(--border);border-radius:50%;background:var(--surface);cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center;color:var(--text);z-index:2}
+.detail-close:hover{background:var(--chip-bg)}
+.detail-name{font-size:20px;font-weight:700;font-family:monospace;margin-bottom:4px}
+.detail-meta{display:flex;gap:8px;align-items:center;margin-bottom:16px;font-size:11px;color:var(--text2)}
+.detail-section{margin-bottom:20px}
+.detail-section h3{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--text2);margin-bottom:8px;border-bottom:1px solid var(--border);padding-bottom:4px}
+.detail-desc{font-size:14px;line-height:1.7;color:var(--text);white-space:pre-line}
+.detail-body{font-size:12px;line-height:1.6;color:var(--text);white-space:pre-line;background:var(--bg);padding:14px;border-radius:var(--radius);border:1px solid var(--border);max-height:400px;overflow-y:auto;font-family:monospace}
+.detail-keywords{display:flex;flex-wrap:wrap;gap:4px}
+.detail-tools{font-family:monospace;font-size:11px;background:var(--chip-bg);padding:8px;border-radius:var(--radius)}
+.detail-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px;padding-top:16px;border-top:1px solid var(--border)}
+.btn{padding:8px 16px;border-radius:var(--radius);font-size:12px;cursor:pointer;font-family:inherit;transition:all .15s;border:1px solid var(--border);background:var(--surface);color:var(--text);display:inline-flex;align-items:center;gap:6px}
+.btn:hover{background:var(--chip-bg)}
+.btn-danger{background:var(--danger);color:#fff;border-color:var(--danger)}
+.btn-danger:hover{background:var(--danger-hover)}
+.btn-accent{background:var(--accent);color:#fff;border-color:var(--accent)}
+.btn-accent:hover{background:var(--accent-h)}
+.usage-history{list-style:none;display:flex;flex-direction:column;gap:6px}
+.usage-history li{padding:8px 10px;background:var(--bg);border-radius:var(--radius);border:1px solid var(--border);font-size:11px}
+.usage-history .session-time{font-weight:600;color:var(--accent)}
+.usage-history .session-prompt{color:var(--text2);margin-top:2px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.toast-container{position:fixed;bottom:20px;right:20px;z-index:100;display:flex;flex-direction:column;gap:8px}
+.toast{padding:12px 20px;background:var(--toast-bg);color:var(--toast-text);border-radius:var(--radius);font-size:12px;box-shadow:0 8px 24px rgba(0,0,0,.2);animation:slideIn .3s ease;max-width:420px}
+.toast.error{border-left:3px solid var(--danger)}
+.toast.success{border-left:3px solid #10b981}
+@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+.confirm-overlay{display:none;position:fixed;inset:0;background:var(--overlay);z-index:60;align-items:center;justify-content:center}
+.confirm-overlay.show{display:flex}
+.confirm-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;max-width:440px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.confirm-box h3{font-size:16px;margin-bottom:8px}
+.confirm-box p{font-size:13px;color:var(--text2);margin-bottom:16px}
+.confirm-box code{font-family:monospace;font-size:11px;background:var(--chip-bg);padding:2px 6px;border-radius:3px;display:block;margin:8px 0;word-break:break-all}
+.confirm-actions{display:flex;gap:8px;justify-content:flex-end}
+.no-results{grid-column:1/-1;text-align:center;padding:60px 20px;color:var(--text2)}
+@media(max-width:768px){.app{flex-direction:column}.sidebar{width:100%;height:auto;position:static;flex-direction:row;overflow-x:auto;padding:6px;gap:2px;border-right:none;border-bottom:1px solid var(--border)}.sidebar-logo,.sidebar-count,.sidebar-footer{display:none}.sidebar-item{font-size:10px;padding:4px 8px;border-radius:12px;white-space:nowrap}.header{padding:10px 14px 0}.header-top{flex-wrap:wrap}.header-title{font-size:16px}.search-wrap{max-width:100%}.content{padding:10px 14px 20px}.card-grid{grid-template-columns:1fr}.pill-bar{overflow-x:auto;flex-wrap:nowrap;padding-bottom:10px}.detail-panel{width:100vw}}
+</style>
+</head>
+<body>
+<div class="app">
+<nav class="sidebar" id="sidebar">
+<div class="sidebar-logo"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>Skill Catalog</div>
+<button class="sidebar-item active" data-cat="all">All Skills<span class="sidebar-count" id="total-count">0</span></button>
+<div id="sidebar-cats"></div>
+<div class="sidebar-footer" id="sidebar-footer">Loading...</div>
+</nav>
+<main class="main">
+<header class="header">
+<div class="header-top">
+<div><h1 class="header-title">Claude Code Skill Catalog</h1><p class="header-stats"><strong id="visible-count">0</strong> shown &middot; <strong id="cat-count">0</strong> categories &middot; Updated <span id="gen-time"></span></p></div>
+<div class="header-actions">
+<div class="search-wrap"><svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg><input type="text" class="search-input" id="search" placeholder="Search skills..." autocomplete="off"><span class="search-shortcut">/</span></div>
+<button class="refresh-btn" id="refresh-btn" title="Regenerate">&#x21bb;</button>
+<button class="theme-btn" id="theme-btn" title="Theme">&#x263e;</button>
+</div>
+</div>
+<div class="pill-bar" id="pill-bar"><button class="pill active" data-cat="all">All</button></div>
+</header>
+<div class="content"><div class="card-grid" id="card-grid"></div></div>
+</main>
+</div>
+<div class="detail-overlay" id="detail-overlay"></div>
+<div class="detail-panel" id="detail-panel"><button class="detail-close" id="detail-close">&times;</button><div class="detail-inner" id="detail-inner"></div></div>
+<div class="confirm-overlay" id="confirm-overlay"><div class="confirm-box"><h3>Delete Skill?</h3><p id="confirm-msg"></p><code id="confirm-cmd"></code><p style="font-size:11px;color:var(--text2);margin-top:4px">After deletion, run <code>python regenerate.py</code> to refresh.</p><div class="confirm-actions"><button class="btn" id="confirm-cancel">Cancel</button><button class="btn btn-danger" id="confirm-ok">Copy &amp; Delete</button></div></div></div>
+<div class="toast-container" id="toast-container"></div>
+<script>
+var CATALOG = __CATALOG_JSON__;
+</script>
+
+<script>
+"use strict";
+var activeCategory = "all", searchQuery = "";
+var cardGrid = document.getElementById("card-grid");
+var searchInput = document.getElementById("search");
+var pillBar = document.getElementById("pill-bar");
+var sidebarCats = document.getElementById("sidebar-cats");
+var visibleCount = document.getElementById("visible-count");
+var totalCount = document.getElementById("total-count");
+var catCount = document.getElementById("cat-count");
+var genTime = document.getElementById("gen-time");
+var themeBtn = document.getElementById("theme-btn");
+var sidebarFooter = document.getElementById("sidebar-footer");
+var detailOverlay = document.getElementById("detail-overlay");
+var detailPanel = document.getElementById("detail-panel");
+var detailInner = document.getElementById("detail-inner");
+var detailClose = document.getElementById("detail-close");
+var confirmOverlay = document.getElementById("confirm-overlay");
+var confirmMsg = document.getElementById("confirm-msg");
+var confirmCmd = document.getElementById("confirm-cmd");
+var toastContainer = document.getElementById("toast-container");
+
+genTime.textContent = CATALOG.metadata.generated_at || "unknown";
+catCount.textContent = CATALOG.metadata.category_count;
+totalCount.textContent = CATALOG.metadata.total_skills;
+sidebarFooter.textContent = "Generated " + CATALOG.metadata.generated_at + " - " + CATALOG.metadata.total_skills + " skills - " + CATALOG.metadata.category_count + " categories";
+
+var allSkills = [];
+CATALOG.categories.forEach(function(cat, idx) {
+  cat._index = idx;
+  cat.skills.forEach(function(s) {
+    s._category = cat;
+    s._searchIndex = [s.name, s.description].concat(s.trigger_keywords || []).join(" ").toLowerCase();
+    allSkills.push(s);
+  });
+});
+
+CATALOG.categories.forEach(function(cat) {
+  var btn = document.createElement("button");
+  btn.className = "sidebar-item";
+  btn.dataset.cat = cat.id;
+  btn.innerHTML = cat.name + '<span class="sidebar-count">' + cat.skill_count + "</span>";
+  btn.onclick = function() { selectCategory(cat.id); };
+  sidebarCats.appendChild(btn);
+
+  var pill = document.createElement("button");
+  pill.className = "pill";
+  pill.dataset.cat = cat.id;
+  pill.textContent = cat.name;
+  pill.onclick = function() { selectCategory(cat.id); };
+  pillBar.appendChild(pill);
+});
+
+function renderCards() {
+  cardGrid.innerHTML = "";
+  var visible = 0;
+  allSkills.forEach(function(s) {
+    var matchCat = activeCategory === "all" || s._category.id === activeCategory;
+    var matchSearch = !searchQuery || s._searchIndex.indexOf(searchQuery) >= 0;
+    if (!matchCat || !matchSearch) return;
+    visible++;
+
+    var card = document.createElement("div");
+    card.className = "card";
+    card.onclick = function(e) {
+      if (!e.target.closest(".usage-sessions")) openDetail(s);
+    };
+
+    var hasUsage = s.usage && s.usage.count > 0;
+    var usageHTML = hasUsage
+      ? '<div class="usage-bar">' +
+          '<span>Called <span class="usage-count">' + s.usage.count + '</span> times</span>' +
+          '<span>Last: ' + (s.usage.last_used || "").slice(0, 10) + '</span>' +
+          '<span class="usage-sessions" onclick="event.stopPropagation();openDetail(\'' + escAttr(s.name) + '\');">history &rarr;</span>' +
+        '</div>'
+      : "";
+
+    var chipsHTML = (s.trigger_keywords || []).slice(0, 5).map(function(k) {
+      return '<span class="chip">' + esc(k) + '</span>';
+    }).join("");
+
+    card.innerHTML =
+      '<div class="card-header">' +
+        '<span class="card-name">' + esc(s.name) + '</span>' +
+        '<div class="card-badges"><span class="badge badge-' + s.source + '">' + s.source + '</span></div>' +
+      '</div>' +
+      '<div class="card-desc">' + esc(s.description) + '</div>' +
+      '<div class="card-chips">' + chipsHTML + '</div>' +
+      usageHTML +
+      '<div class="card-footer"><span>' + (s.file_path ? '<code>' + esc(s.file_path) + '</code>' : 'built-in') + '</span></div>';
+
+    cardGrid.appendChild(card);
+  });
+
+  visibleCount.textContent = visible;
+  if (!visible) {
+    cardGrid.innerHTML = '<div class="no-results"><h3>No matching skills</h3><p>Try adjusting your search or category filter.</p></div>';
+  }
+}
+
+function selectCategory(catId) {
+  activeCategory = catId;
+  document.querySelectorAll(".sidebar-item").forEach(function(el) {
+    el.classList.toggle("active", el.dataset.cat === catId);
+  });
+  document.querySelectorAll(".pill").forEach(function(el) {
+    el.classList.toggle("active", el.dataset.cat === catId || (catId === "all" && el.dataset.cat === "all"));
+  });
+  renderCards();
+}
+
+searchInput.addEventListener("input", function() {
+  searchQuery = searchInput.value.toLowerCase().trim();
+  renderCards();
+});
+
+function openDetail(skillOrName) {
+  var skill = typeof skillOrName === "string" ? allSkills.find(function(s) { return s.name === skillOrName; }) : skillOrName;
+  if (!skill) return;
+
+  var u = skill.usage;
+  var usageSection = (u && u.count > 0)
+    ? '<div class="detail-section"><h3>Usage Statistics</h3>' +
+        '<p style="font-size:14px;margin-bottom:8px;">Called <strong style="color:var(--accent);">' + u.count + ' times</strong>' +
+        (u.last_used ? ' - Last used: <strong>' + u.last_used.slice(0, 16) + '</strong>' : '') + '</p>' +
+        (u.sessions && u.sessions.length
+          ? '<ul class="usage-history">' + u.sessions.map(function(s) {
+              return '<li><span class="session-time">' + esc(s.time) + '</span>' +
+                '<span style="font-size:10px;color:var(--text2);margin-left:8px;">[' + esc(s.session_id) + ']</span>' +
+                '<div class="session-prompt">' + esc(s.prompt || "(no prompt recorded)") + '</div></li>';
+            }).join("") + '</ul>'
+          : '') +
+      '</div>'
+    : "";
+
+  var bodySection = skill.body
+    ? '<div class="detail-section"><h3>SKILL.md Content' + (skill.body_word_count ? ' (' + skill.body_word_count + ' words)' : '') + '</h3>' +
+        '<div class="detail-body">' + esc(skill.body) + '</div></div>'
+    : "";
+
+  var toolsSection = (skill.allowed_tools && skill.allowed_tools.length)
+    ? '<div class="detail-section"><h3>Allowed Tools</h3><div class="detail-tools">' +
+        skill.allowed_tools.map(function(t) { return esc(t); }).join("<br>") + '</div></div>'
+    : "";
+
+  var deleteBtn = skill.source === "local"
+    ? '<button class="btn btn-danger" onclick="confirmDelete(\'' + escAttr(skill.name) + '\')">Delete Skill</button>'
+    : "";
+
+  detailInner.innerHTML =
+    '<div class="detail-name">' + esc(skill.name) + '</div>' +
+    '<div class="detail-meta">' +
+      '<span class="badge badge-' + skill.source + '">' + skill.source + '</span>' +
+      '<span>' + esc(skill._category.name) + '</span>' +
+      (skill.file_path ? '<span><code>' + esc(skill.file_path) + '</code></span>' : '') +
+    '</div>' +
+    '<div class="detail-section"><h3>Description</h3><div class="detail-desc">' + esc(skill.description) + '</div></div>' +
+    '<div class="detail-section"><h3>Trigger Keywords</h3><div class="detail-keywords">' +
+      ((skill.trigger_keywords || []).map(function(k) { return '<span class="chip">' + esc(k) + '</span>'; }).join("") || '<span style="color:var(--text2);">None extracted</span>') +
+    '</div></div>' +
+    usageSection + bodySection + toolsSection +
+    '<div class="detail-actions">' +
+      '<button class="btn btn-accent" onclick="navigator.clipboard.writeText(\'/' + escAttr(skill.name) + '\').then(function(){toast(\'Copied: /' + escAttr(skill.name) + '\',\'success\');})">Copy /command</button>' +
+      (skill.file_path ? '<button class="btn" onclick="navigator.clipboard.writeText(\'cat ~/.claude/' + escAttr(skill.file_path) + '\').then(function(){toast(\'Copied cat command\',\'success\');})">Copy file path</button>' : '') +
+      deleteBtn +
+      '<button class="btn" onclick="closeDetail()">Close</button>' +
+    '</div>';
+
+  detailOverlay.classList.add("show");
+  detailPanel.classList.add("show");
+  document.body.style.overflow = "hidden";
+}
+
+function closeDetail() {
+  detailOverlay.classList.remove("show");
+  detailPanel.classList.remove("show");
+  document.body.style.overflow = "";
+}
+detailClose.onclick = closeDetail;
+detailOverlay.onclick = closeDetail;
+document.addEventListener("keydown", function(e) {
+  if (e.key === "Escape" && detailPanel.classList.contains("show")) closeDetail();
+});
+
+var pendingDeleteSkill = null;
+function confirmDelete(skillName) {
+  pendingDeleteSkill = skillName;
+  confirmMsg.textContent = 'Delete "' + skillName + '"? The command will be copied to your clipboard.';
+  confirmCmd.textContent = "rm -rf ~/.claude/skills/" + skillName;
+  confirmOverlay.classList.add("show");
+}
+document.getElementById("confirm-cancel").onclick = function() {
+  confirmOverlay.classList.remove("show");
+  pendingDeleteSkill = null;
+};
+document.getElementById("confirm-ok").onclick = function() {
+  if (!pendingDeleteSkill) return;
+  var cmd = "rm -rf ~/.claude/skills/" + pendingDeleteSkill;
+  try {
+    navigator.clipboard.writeText(cmd).then(function() {
+      toast('Command copied to clipboard! Paste in terminal to delete "' + pendingDeleteSkill + '", then run: python regenerate.py', "error");
+    });
+  } catch(e) {
+    toast("Run this in terminal: " + cmd, "error");
+  }
+  confirmOverlay.classList.remove("show");
+  closeDetail();
+  pendingDeleteSkill = null;
+};
+confirmOverlay.addEventListener("click", function(e) {
+  if (e.target === confirmOverlay) {
+    confirmOverlay.classList.remove("show");
+    pendingDeleteSkill = null;
+  }
+});
+
+function getTheme() {
+  return document.documentElement.getAttribute("data-theme") ||
+    (window.matchMedia("(prefers-color-scheme:dark)").matches ? "dark" : "light");
+}
+function setTheme(t) {
+  document.documentElement.setAttribute("data-theme", t);
+  themeBtn.innerHTML = t === "dark" ? "&#x263e;" : "&#x2600;";
+  localStorage.setItem("skill-catalog-theme", t);
+}
+var saved = localStorage.getItem("skill-catalog-theme");
+if (saved) setTheme(saved);
+else themeBtn.innerHTML = getTheme() === "dark" ? "&#x263e;" : "&#x2600;";
+themeBtn.onclick = function() { setTheme(getTheme() === "dark" ? "light" : "dark"); };
+
+document.getElementById("refresh-btn").onclick = function() {
+  navigator.clipboard.writeText("cd ~/.claude/skills/skill-catalog && python regenerate.py --with-usage").then(function() {
+    toast("Copied refresh command! Paste in terminal to regenerate the catalog.", "success");
+  });
+};
+
+document.addEventListener("keydown", function(e) {
+  if (detailPanel.classList.contains("show")) return;
+  var isInput = e.target.tagName === "INPUT";
+  if (e.key === "/" && !isInput) {
+    e.preventDefault();
+    searchInput.focus();
+    searchInput.select();
+    return;
+  }
+  if (e.key === "Escape" && isInput) {
+    searchInput.value = "";
+    searchQuery = "";
+    searchInput.blur();
+    renderCards();
+    return;
+  }
+  if (e.ctrlKey && e.key === "t") {
+    e.preventDefault();
+    setTheme(getTheme() === "dark" ? "light" : "dark");
+    return;
+  }
+  if (!isInput && !e.ctrlKey && !e.metaKey && e.key >= "1" && e.key <= "9") {
+    var idx = parseInt(e.key) - 1;
+    if (idx < CATALOG.categories.length) selectCategory(CATALOG.categories[idx].id);
+  }
+});
+
+function toast(msg, type) {
+  var t = document.createElement("div");
+  t.className = "toast " + (type || "");
+  t.textContent = msg;
+  toastContainer.appendChild(t);
+  setTimeout(function() {
+    t.style.opacity = "0";
+    t.style.transition = "opacity .3s";
+    setTimeout(function() { t.remove(); }, 300);
+  }, 4000);
+}
+
+function esc(s) {
+  var d = document.createElement("div");
+  d.textContent = s || "";
+  return d.innerHTML;
+}
+
+function escAttr(s) {
+  return (s || "").replace(/'/g, "\\'").replace(/"/g, "&quot;");
+}
+
+renderCards();
+</script>
+</body>
+</html>
