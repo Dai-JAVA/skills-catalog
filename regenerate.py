@@ -190,9 +190,9 @@ def extract_keywords(text):
 # --- Transcript Scanner ------------------------------------------------------
 
 # Known name mappings: transcript tool-call name → canonical SKILL.md name
+# Add your own mappings here if directory names differ from SKILL.md names.
 NAME_ALIASES = {
-    "Humanizer-zh-main": "humanizer-zh",
-    "humanizer-zh-main": "humanizer-zh",
+    # Example: "My-Skill-Dir": "my-skill-name",
 }
 
 def normalize_skill_name(name):
@@ -200,9 +200,10 @@ def normalize_skill_name(name):
     return NAME_ALIASES.get(name, name)
 
 
-def scan_transcripts():
+def scan_transcripts(capture_triggers=False):
     """Scan all .jsonl transcript files for Skill tool calls.
-    Returns {skill_name: {count, last_used, sessions: [{time, prompt, session_id}]}}
+    If capture_triggers=True, also captures the user message immediately before each call.
+    Returns {skill_name: {count, last_used, sessions: [{time, prompt, session_id, trigger_phrase}]}}
     """
     usage = defaultdict(lambda: {"count": 0, "last_used": None, "sessions": []})
 
@@ -221,14 +222,12 @@ def scan_transcripts():
         except Exception:
             continue
 
-        # Extract the first user message text as the "prompt" for context
         session_prompt = ""
         for line in lines:
             try:
                 obj = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            # User messages: type=user, message.role=user, content[0].text
             if obj.get("type") == "user":
                 msg = obj.get("message", {})
                 content = msg.get("content", [])
@@ -239,13 +238,26 @@ def scan_transcripts():
                 if session_prompt:
                     break
 
-        # Find all Skill tool calls (nested inside assistant messages)
-        skill_calls_in_session = []
+        # Track the most recent user message for per-call trigger capture
+        last_user_msg = session_prompt
+
         for line in lines:
             try:
                 obj = json.loads(line)
             except json.JSONDecodeError:
                 continue
+
+            # Update last_user_msg whenever we see a user message
+            if obj.get("type") == "user":
+                msg = obj.get("message", {})
+                content = msg.get("content", [])
+                user_text = ""
+                if content and isinstance(content, list):
+                    user_text = str(content[0].get("text", ""))[:200]
+                elif isinstance(content, str):
+                    user_text = str(content)[:200]
+                if user_text:
+                    last_user_msg = user_text
 
             timestamp = obj.get("timestamp", "")
 
@@ -255,35 +267,18 @@ def scan_transcripts():
                     if isinstance(c, dict) and c.get("type") == "tool_use" and c.get("name") == "Skill":
                         skill_name = c.get("input", {}).get("skill", "unknown")
                         if skill_name and skill_name != "unknown":
-                            # Normalize: some tool calls use directory name (Humanizer-zh-main)
-                            # while canonical name in SKILL.md is humanizer-zh
                             normalized = normalize_skill_name(skill_name)
-                            skill_calls_in_session.append((normalized, timestamp))
+                            trigger = last_user_msg if capture_triggers else ""
+                            _aggregate_call(usage, [(normalized, timestamp, trigger)], session_id, session_prompt)
 
             # Pattern 2: Top-level tool_use (older format)
             if obj.get("type") == "tool_use" and obj.get("tool") == "Skill":
                 skill_name = obj.get("input", {}).get("skill", "unknown")
                 if skill_name and skill_name != "unknown":
                     normalized = normalize_skill_name(skill_name)
-                    skill_calls_in_session.append((normalized, timestamp))
+                    trigger = last_user_msg if capture_triggers else ""
+                    _aggregate_call(usage, [(normalized, timestamp, trigger)], session_id, session_prompt)
 
-        # Aggregate
-        for skill_name, timestamp in skill_calls_in_session:
-            u = usage[skill_name]
-            u["count"] += 1
-            if not u["last_used"] or timestamp > u["last_used"]:
-                u["last_used"] = timestamp
-
-            # Add session entry (deduplicate by session)
-            existing = [s for s in u["sessions"] if s["session_id"] == session_id]
-            if not existing:
-                u["sessions"].append({
-                    "session_id": session_id[:12],
-                    "time": timestamp[:16] if timestamp else "unknown",
-                    "prompt": session_prompt
-                })
-
-    # Sort sessions by time (newest first), keep top 10 per skill
     for skill_name in usage:
         usage[skill_name]["sessions"].sort(
             key=lambda s: s.get("time", ""), reverse=True
@@ -291,6 +286,146 @@ def scan_transcripts():
         usage[skill_name]["sessions"] = usage[skill_name]["sessions"][:10]
 
     return dict(usage)
+
+
+def _aggregate_call(usage, calls, session_id, session_prompt):
+    """Helper: aggregate skill calls into usage dict."""
+    for skill_name, timestamp, trigger_phrase in calls:
+        u = usage[skill_name]
+        u["count"] += 1
+        if not u["last_used"] or timestamp > u["last_used"]:
+            u["last_used"] = timestamp
+        existing = [s for s in u["sessions"] if s["session_id"] == session_id]
+        if not existing:
+            entry = {
+                "session_id": session_id[:12],
+                "time": timestamp[:16] if timestamp else "unknown",
+                "prompt": session_prompt
+            }
+            if trigger_phrase:
+                entry["trigger_phrase"] = trigger_phrase
+            u["sessions"].append(entry)
+
+
+# --- Route Suggestion Engine --------------------------------------------------
+
+_STOP_PHRASES = {
+    "can you", "could you", "would you", "please help", "i need", "i want",
+    "help me", "tell me", "what is", "how do", "how to", "how can",
+    "i have", "there is", "there are", "this is", "that is",
+    "the", "and", "for", "with", "from", "that",
+    "tell", "show", "give", "make", "take", "use",
+    "帮我", "请问", "能不能", "你可以", "我需要", "我想",
+    "你看", "这个", "那个", "怎么样", "有没有", "是什么",
+    "帮我看看", "帮我分析", "帮我看一下", "麻烦你",
+    "不用", "不要", "不是", "可以", "需要", "应该",
+}
+
+
+def _extract_trigger_phrases(text):
+    """Extract potential trigger phrases from user message text.
+    Focuses on short, actionable phrases (2-5 words) and filters noise.
+    """
+    phrases = []
+    # Normalize: remove URLs, file paths, excessive punctuation
+    cleaned = re.sub(r'https?://\S+', '', text)
+    cleaned = re.sub(r'[a-zA-Z]:[\\/][^\s]{20,}', '', cleaned)  # Windows paths
+    cleaned = re.sub(r'~?/[\w.-]+(?:/[\w.-]+){2,}', '', cleaned)  # Unix paths
+    words = cleaned.split()
+    for n in [2, 3, 4, 5]:
+        for i in range(len(words) - n + 1):
+            chunk = " ".join(words[i:i+n])
+            # Must be 6-60 chars, not too generic
+            if 6 <= len(chunk) <= 60 and chunk.lower() not in _STOP_PHRASES:
+                phrases.append(chunk)
+    # Also grab short first sentence (often the main intent)
+    first = cleaned.split("\n")[0].split("。")[0].split(". ")[0]
+    if 6 <= len(first) <= 60:
+        phrases.append(first)
+    return phrases
+
+
+def suggest_routes(usage_data, existing_memory_path=None):
+    """Analyze transcript usage to suggest explicit routing rules.
+    Returns {suggestions: [...], memory_entries: [...]}
+    """
+    existing_routes = {}
+    if existing_memory_path and Path(existing_memory_path).exists():
+        try:
+            with open(existing_memory_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            for m in re.finditer(r'(?:skills?|/)([a-z][a-z0-9-]+)', content, re.IGNORECASE):
+                existing_routes[m.group(1).lower()] = True
+        except Exception:
+            pass
+
+    all_triggers = defaultdict(set)
+    skill_triggers = defaultdict(list)
+
+    for skill_name, data in usage_data.items():
+        if data["count"] < 2:
+            continue
+        for session in data.get("sessions", []):
+            raw = session.get("trigger_phrase", "")
+            if not raw:
+                continue
+            phrases = _extract_trigger_phrases(raw)
+            for phrase in phrases:
+                normalized = phrase.lower().strip()
+                if len(normalized) < 4 or normalized in _STOP_PHRASES:
+                    continue
+                all_triggers[normalized].add(skill_name)
+                skill_triggers[skill_name].append((normalized, raw[:80]))
+
+    suggestions = []
+    for skill_name, data in sorted(usage_data.items(), key=lambda x: -x[1]["count"]):
+        if skill_name in existing_routes:
+            continue
+        triggers = skill_triggers.get(skill_name, [])
+        if not triggers:
+            continue
+
+        phrase_counts = defaultdict(int)
+        for phrase, _ in triggers:
+            phrase_counts[phrase] += 1
+
+        scored = []
+        for phrase, count in phrase_counts.items():
+            skill_count = len(all_triggers[phrase])
+            conflict_with = all_triggers[phrase] - {skill_name}
+            uniqueness = 1.0 / max(skill_count, 1)
+            frequency = min(count / max(data["count"], 1), 1.0)
+            score = (frequency * 0.4) + (uniqueness * 0.6)
+            scored.append({
+                "phrase": phrase,
+                "score": round(score, 2),
+                "count": count,
+                "conflict_with": sorted(conflict_with) if conflict_with else [],
+                "unique": len(conflict_with) == 0
+            })
+
+        scored.sort(key=lambda x: (-x["score"], -x["count"]))
+        top = [s for s in scored if s["score"] > 0.4][:4]
+        if top:
+            suggestions.append({
+                "skill": skill_name,
+                "count": data["count"],
+                "suggested_triggers": top
+            })
+
+    memory_entries = []
+    for s in suggestions:
+        if not s["suggested_triggers"]:
+            continue
+        best = s["suggested_triggers"][0]
+        if best["unique"]:
+            example = best["phrase"]
+        else:
+            uniques = [t for t in s["suggested_triggers"] if t["unique"]]
+            example = uniques[0]["phrase"] if uniques else best["phrase"]
+        memory_entries.append(f"{s['skill']} | {example} | auto")
+
+    return {"suggestions": suggestions, "memory_entries": memory_entries}
 
 
 # --- Pending Deletes ---------------------------------------------------------
@@ -301,6 +436,138 @@ def load_pending_deletes():
         return []
     with open(PENDING_DELETES, 'r', encoding='utf-8') as f:
         return [line.strip() for line in f if line.strip() and not line.startswith('#')]
+
+
+# --- Route Management --------------------------------------------------------
+
+ROUTES_JSON = CATALOG_DIR / "routes.json"
+def _find_memory_dir():
+    """Find the memory directory under .claude/projects/ for this machine."""
+    projects_dir = Path.home() / ".claude" / "projects"
+    if not projects_dir.exists():
+        return None
+    # Look for a project directory that has a memory/ subdirectory
+    for d in sorted(projects_dir.iterdir()):
+        if d.is_dir() and (d / "memory").is_dir():
+            return d / "memory"
+    return None
+
+MEMORY_ROUTE_PATH = None  # Lazily resolved via _resolve_memory_path()
+
+def _resolve_memory_path():
+    global MEMORY_ROUTE_PATH
+    if MEMORY_ROUTE_PATH is None:
+        mem_dir = _find_memory_dir()
+        MEMORY_ROUTE_PATH = (mem_dir / "skill_auto_trigger.md") if mem_dir else None
+    return MEMORY_ROUTE_PATH
+
+
+def load_existing_routes():
+    """Load routes from routes.json (preferred) or parse from memory file.
+    Returns [{skill, trigger, priority, source}] or [].
+    """
+    # Primary: routes.json
+    if ROUTES_JSON.exists():
+        try:
+            with open(ROUTES_JSON, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            routes = data.get("routes", [])
+            for r in routes:
+                r["source"] = "routes.json"
+            return routes
+        except Exception:
+            pass
+
+    # Fallback: parse memory file
+    mem_path = _resolve_memory_path()
+    if mem_path and mem_path.exists():
+        try:
+            with open(mem_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except Exception:
+            return []
+        routes = []
+        in_table = False
+        for line in content.split('\n'):
+            stripped = line.strip()
+            if '|' in stripped and ('Skill' in stripped or 'skill' in stripped.lower()) and ('触发' in stripped or 'trigger' in stripped.lower()):
+                in_table = True
+                continue
+            if in_table and stripped.startswith('|') and not stripped.startswith('|---'):
+                parts = [p.strip() for p in stripped.split('|') if p.strip()]
+                if len(parts) >= 2:
+                    skill_name = parts[0].replace('`', '').strip()
+                    trigger = parts[1].strip()
+                    skill_name = normalize_skill_name(skill_name)
+                    routes.append({
+                        "skill": skill_name,
+                        "trigger": trigger,
+                        "priority": 3,
+                        "source": "memory"
+                    })
+            elif in_table and not stripped.startswith('|'):
+                in_table = False
+        return routes
+
+    return []
+
+
+def sync_routes_to_memory():
+    """Sync routes.json → skill_auto_trigger.md memory file.
+    Called by --sync-routes flag or automatically when routes.json is newer.
+    """
+    if not ROUTES_JSON.exists():
+        print("  No routes.json found, skipping sync.")
+        return False
+
+    with open(ROUTES_JSON, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+
+    routes = data.get("routes", [])
+    if not routes:
+        print("  routes.json is empty, skipping sync.")
+        return False
+
+    # Build memory file content
+    lines = [
+        "---",
+        "name: skill-auto-trigger",
+        "description: 常用的 skills 应自动触发，无需用户每次手动点名",
+        "metadata:",
+        "  type: feedback",
+        "---",
+        "",
+        "以下 skills 在满足触发条件时必须自动调用：",
+        "",
+        "| Skill | 触发条件 |",
+        "|-------|----------|",
+    ]
+    for r in routes:
+        lines.append(f"| {r['skill']} | {r['trigger']} |")
+
+    lines += [
+        "",
+        "其他 skills 保持按需手动调用。",
+        "",
+        "**Why:** 用户不希望每次都要手动说\"用那个 skill\"。这些 skill 的触发条件是确定性的，应该自动执行。",
+        "",
+        "**How to apply:** 在每次对话中，判断当前任务是否命中上述触发条件。命中即自动调用相关 skill，无需询问。多个 skill 同时命中时，按优先级顺序执行。",
+        "",
+    ]
+
+    content = '\n'.join(lines) + '\n'
+
+    mem_path = _resolve_memory_path()
+    if not mem_path:
+        print("  Could not find memory directory. Skipping sync.")
+        return False
+
+    mem_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(mem_path, 'w', encoding='utf-8') as f:
+        f.write(content)
+
+    print(f"  Synced {len(routes)} routes to {mem_path}")
+    return True
 
 
 # --- Category Mapping --------------------------------------------------------
@@ -388,7 +655,7 @@ def generate_category_name(skill):
 
 # --- Core Regeneration -------------------------------------------------------
 
-def regenerate(dry_run=False, verbose=False, with_usage=False):
+def regenerate(dry_run=False, verbose=False, with_usage=False, suggest_routes_flag=False):
     stats = {"local_scanned": 0, "builtin_added": 0, "new_categories": [],
              "total": 0, "deleted": 0}
 
@@ -514,15 +781,29 @@ def regenerate(dry_run=False, verbose=False, with_usage=False):
 
     # Step 5.5: Scan transcripts for usage data
     usage_data = {}
+    route_suggestions = None
     if with_usage:
         print("[5/5] Scanning transcripts for usage data...")
-        usage_data = scan_transcripts()
+        usage_data = scan_transcripts(capture_triggers=suggest_routes_flag)
         total_calls = sum(u["count"] for u in usage_data.values())
         skills_with_usage = len(usage_data)
         print(f"  -> Found {total_calls} total calls across {skills_with_usage} skills")
         if verbose:
             for name, u in sorted(usage_data.items(), key=lambda x: -x[1]["count"])[:10]:
                 print(f"     {name}: {u['count']} calls, last: {u['last_used'][:16] if u['last_used'] else 'N/A'}")
+
+        if suggest_routes_flag:
+            memory_path = _resolve_memory_path()
+            route_suggestions = suggest_routes(usage_data, str(memory_path) if memory_path else None)
+            print(f"\n  Route suggestions ({len(route_suggestions['suggestions'])} skills):")
+            for s in route_suggestions["suggestions"]:
+                best = s["suggested_triggers"][0]
+                tag = "UNIQUE" if best["unique"] else f"conflicts: {', '.join(best['conflict_with'][:2])}"
+                print(f"    {s['skill']} ({s['count']} calls): \"{best['phrase']}\" [{tag}]")
+            if route_suggestions["memory_entries"]:
+                print(f"\n  Suggested memory entries (append to skill_auto_trigger.md):")
+                for entry in route_suggestions["memory_entries"]:
+                    print(f"    {entry}")
     else:
         print("[5/5] Skipping transcript scan (use --with-usage to enable)")
 
@@ -560,7 +841,7 @@ def regenerate(dry_run=False, verbose=False, with_usage=False):
         else:
             cat_desc = f"Skills for {cat_name.lower()}."
 
-        # Attach usage data to skills
+        # Attach usage data and routing info to skills
         skills_out = []
         for s in sorted(skills, key=lambda x: x['name']):
             skill_entry = dict(s)
@@ -568,6 +849,19 @@ def regenerate(dry_run=False, verbose=False, with_usage=False):
                 skill_entry['usage'] = usage_data[s['name']]
             else:
                 skill_entry['usage'] = None
+            # Attach routing suggestion if available
+            if route_suggestions:
+                for sug in route_suggestions.get("suggestions", []):
+                    if sug["skill"] == s['name']:
+                        skill_entry['routing'] = {
+                            "suggested": True,
+                            "triggers": sug["suggested_triggers"]
+                        }
+                        break
+                if 'routing' not in skill_entry:
+                    skill_entry['routing'] = None
+            else:
+                skill_entry['routing'] = None
             skills_out.append(skill_entry)
 
         categories_out.append({
@@ -578,6 +872,8 @@ def regenerate(dry_run=False, verbose=False, with_usage=False):
             "skills": skills_out
         })
 
+    existing_routes = load_existing_routes()
+
     catalog = {
         "metadata": {
             "generated_at": time.strftime("%Y-%m-%d %H:%M"),
@@ -586,7 +882,9 @@ def regenerate(dry_run=False, verbose=False, with_usage=False):
             "builtin_skills": stats["builtin_added"],
             "category_count": len(categories_out),
             "has_usage_data": with_usage,
+            "has_routes": len(existing_routes) > 0,
         },
+        "memory_routes": existing_routes,
         "categories": categories_out
     }
 
@@ -697,6 +995,16 @@ if __name__ == '__main__':
     dry_run = '--dry-run' in sys.argv
     verbose = '--verbose' in sys.argv or '-v' in sys.argv
     with_usage = '--with-usage' in sys.argv
+    suggest_routes_flag = '--suggest-routes' in sys.argv
+    sync_routes_flag = '--sync-routes' in sys.argv
+
+    # Handle --sync-routes standalone
+    if sync_routes_flag:
+        print("=" * 60)
+        print("  Route Sync: routes.json → memory file")
+        print("=" * 60)
+        sync_routes_to_memory()
+        sys.exit(0)
 
     print("=" * 60)
     print("  Skill Catalog Regenerator")
@@ -705,8 +1013,10 @@ if __name__ == '__main__':
     print(f"  Output dir : {CATALOG_DIR}")
     if with_usage:
         print(f"  Usage scan : ENABLED (scanning {CLAUDE_PROJECTS_DIR})")
+    if suggest_routes_flag:
+        print(f"  Route suggest : ENABLED (analyzing trigger phrases)")
     if dry_run:
         print("  Mode       : DRY RUN")
     print()
 
-    regenerate(dry_run=dry_run, verbose=verbose, with_usage=with_usage)
+    regenerate(dry_run=dry_run, verbose=verbose, with_usage=with_usage, suggest_routes_flag=suggest_routes_flag)

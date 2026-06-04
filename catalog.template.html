@@ -52,6 +52,34 @@ body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:v
 .chip{font-size:9px;padding:2px 7px;border-radius:10px;background:var(--chip-bg);color:var(--chip-text);white-space:nowrap;max-width:130px;overflow:hidden;text-overflow:ellipsis}
 .card-footer{display:flex;align-items:center;justify-content:space-between;font-size:10px;color:var(--text2);margin-top:4px}
 .card-footer code{font-family:monospace;font-size:10px;background:var(--chip-bg);padding:1px 4px;border-radius:3px}
+.routing-badge{font-size:9px;padding:1px 5px;border-radius:3px;font-weight:600;margin-left:4px}
+.routing-badge.suggested{background:#fef3c7;color:#92400e}
+.routing-badge.active{background:#dcfce7;color:#166534}
+.routes-section{margin-bottom:16px;background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden}
+.routes-header{padding:12px 16px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;user-select:none}
+.routes-header:hover{background:var(--sidebar-bg)}
+.routes-header h3{font-size:14px;margin:0}
+.routes-count{font-size:11px;background:var(--chip-bg);padding:2px 8px;border-radius:10px;color:var(--text2)}
+.routes-toggle{font-size:12px;color:var(--text2);transition:transform .2s}
+.routes-toggle.open{transform:rotate(90deg)}
+.routes-body{display:none;padding:0 16px 12px}
+.routes-body.show{display:block}
+.route-row{display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px}
+.route-row:last-child{border-bottom:none}
+.route-skill{font-family:monospace;font-weight:600;color:var(--accent);white-space:nowrap;min-width:180px}
+.route-trigger{color:var(--text);flex:1}
+.route-badge{font-size:9px;padding:1px 5px;border-radius:3px;background:#dcfce7;color:#166534;white-space:nowrap}
+.route-actions{display:flex;gap:4px;margin-left:8px;align-items:center}
+.route-actions button{font-size:10px;padding:2px 6px;border:1px solid var(--border);border-radius:3px;background:var(--surface);color:var(--text2);cursor:pointer}
+.route-actions button:hover{color:var(--accent);border-color:var(--accent)}
+.route-actions .btn-del:hover{color:var(--danger);border-color:var(--danger)}
+.edit-mode .route-row{align-items:flex-start;gap:14px;padding:12px 0}
+.edit-mode .route-row input{width:240px;flex-shrink:0;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);background:var(--input-bg);color:var(--text);font-size:14px;font-family:monospace}
+.edit-mode .route-row input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+.edit-mode .route-row textarea{flex:1;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);background:var(--input-bg);color:var(--text);font-size:14px;font-family:system-ui,-apple-system,sans-serif;resize:vertical;min-height:80px;line-height:1.6}
+.edit-mode .route-row textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+.routes-edit-bar{display:flex;align-items:center;gap:10px;padding:12px 0 0;border-top:1px solid var(--border);margin-top:10px}
+.routes-edit-bar button{font-size:12px;padding:7px 14px;border-radius:var(--radius);cursor:pointer;font-family:system-ui,-apple-system,sans-serif;transition:all .15s}
 .usage-bar{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text2);padding-top:4px;border-top:1px solid var(--border);margin-top:2px}
 .usage-count{font-weight:700;color:var(--accent)}
 .usage-sessions{font-size:9px;color:var(--text2);margin-left:auto;cursor:pointer}
@@ -118,7 +146,7 @@ body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:v
 </div>
 <div class="pill-bar" id="pill-bar"><button class="pill active" data-cat="all">All</button></div>
 </header>
-<div class="content"><div class="card-grid" id="card-grid"></div></div>
+<div class="content"><div class="routes-section" id="routes-section" style="display:none"><div class="routes-header" id="routes-header" onclick="toggleRoutes()"><h3>Memory Routes</h3><div style="display:flex;align-items:center;gap:8px"><button class="btn" style="font-size:10px;padding:2px 8px" id="routes-edit-btn" onclick="event.stopPropagation();startEditRoutes()">Edit</button><button class="btn" style="font-size:10px;padding:2px 8px" id="routes-ai-btn" onclick="event.stopPropagation();aiPlanRoutes()" title="Copy AI planning prompt">AI Plan</button><span class="routes-count" id="routes-count">0</span><span class="routes-toggle" id="routes-toggle">&#9654;</span></div></div><div class="routes-body" id="routes-body"></div></div><div class="card-grid" id="card-grid"></div></div>
 </main>
 </div>
 <div class="detail-overlay" id="detail-overlay"></div>
@@ -218,7 +246,9 @@ function renderCards() {
       '<div class="card-desc">' + esc(s.description) + '</div>' +
       '<div class="card-chips">' + chipsHTML + '</div>' +
       usageHTML +
-      '<div class="card-footer"><span>' + (s.file_path ? '<code>' + esc(s.file_path) + '</code>' : 'built-in') + '</span></div>';
+      '<div class="card-footer"><span>' + (s.file_path ? '<code>' + esc(s.file_path) + '</code>' : 'built-in') + '</span>' +
+        (s.routing && s.routing.suggested ? '<span class="routing-badge suggested" title="Route suggested: ' + esc(s.routing.triggers[0].phrase) + '">route</span>' : '') +
+      '</div>';
 
     cardGrid.appendChild(card);
   });
@@ -289,6 +319,16 @@ function openDetail(skillOrName) {
     '<div class="detail-section"><h3>Trigger Keywords</h3><div class="detail-keywords">' +
       ((skill.trigger_keywords || []).map(function(k) { return '<span class="chip">' + esc(k) + '</span>'; }).join("") || '<span style="color:var(--text2);">None extracted</span>') +
     '</div></div>' +
+    (skill.routing && skill.routing.suggested
+      ? '<div class="detail-section"><h3>Route Suggestion</h3><div style="font-size:13px;">' +
+          skill.routing.triggers.map(function(t) {
+            return '<div style="padding:4px 0;border-bottom:1px solid var(--border)">' +
+              '<strong>' + esc(t.phrase) + '</strong> ' +
+              '<span style="font-size:10px;color:var(--text2);">(score: ' + t.score + (t.unique ? ', unique' : ', conflicts: ' + t.conflict_with.join(', ')) + ')</span>' +
+              '</div>';
+          }).join("") +
+        '</div></div>'
+      : '') +
     usageSection + bodySection + toolsSection +
     '<div class="detail-actions">' +
       '<button class="btn btn-accent" onclick="navigator.clipboard.writeText(\'/' + escAttr(skill.name) + '\').then(function(){toast(\'Copied: /' + escAttr(skill.name) + '\',\'success\');})">Copy /command</button>' +
@@ -414,6 +454,146 @@ function escAttr(s) {
   return (s || "").replace(/'/g, "\\'").replace(/"/g, "&quot;");
 }
 
+var editMode = false;
+var editedRoutes = [];
+var routesFileHandle = null;
+
+function renderRoutes(data) {
+  var routes = data || CATALOG.memory_routes || [];
+  var section = document.getElementById("routes-section");
+  var body = document.getElementById("routes-body");
+  var count = document.getElementById("routes-count");
+  var editBtn = document.getElementById("routes-edit-btn");
+
+  if (!routes.length && !editMode) { section.style.display = "none"; return; }
+  section.style.display = "";
+  count.textContent = routes.length + (editMode ? " editing" : " active");
+  if (editMode) { editBtn.textContent = "Editing..."; editBtn.style.color = "var(--accent)"; }
+  else { editBtn.textContent = "Edit"; editBtn.style.color = ""; }
+
+  body.className = "routes-body" + (editMode || body.classList.contains("show") ? " show" : "");
+  body.innerHTML = routes.map(function(r, i) {
+    if (editMode) {
+      return '<div class="route-row">' +
+        '<input value="' + escAttr(r.skill) + '" onchange="editedRoutes[' + i + '].skill=this.value" aria-label="Skill">' +
+        '<textarea onchange="editedRoutes[' + i + '].trigger=this.value" aria-label="Trigger">' + esc(r.trigger) + '</textarea>' +
+        '<div class="route-actions"><button class="btn-del" onclick="removeRoute(' + i + ')" title="Remove">x</button></div>' +
+      '</div>';
+    }
+    return '<div class="route-row">' +
+      '<span class="route-skill">/' + esc(r.skill) + '</span>' +
+      '<span class="route-trigger">' + esc(r.trigger) + '</span>' +
+      '<span class="route-badge">memory</span>' +
+    '</div>';
+  }).join("") +
+  (editMode
+    ? '<div class="routes-edit-bar">' +
+        '<button class="btn btn-accent" onclick="saveEditedRoutes()">Save Routes</button>' +
+        '<button class="btn" onclick="addNewRoute()">+ Add Route</button>' +
+        '<button class="btn" onclick="cancelEdit()">Cancel</button>' +
+      '</div>'
+    : "");
+  document.getElementById("routes-toggle").classList.toggle("open", body.classList.contains("show"));
+}
+
+function toggleRoutes() {
+  if (editMode) return;
+  var body = document.getElementById("routes-body");
+  var toggle = document.getElementById("routes-toggle");
+  var show = !body.classList.contains("show");
+  body.classList.toggle("show", show);
+  toggle.classList.toggle("open", show);
+}
+
+// --- Edit mode (pure visual, no markdown) ---
+
+function startEditRoutes() {
+  if (editMode) return;
+  editedRoutes = JSON.parse(JSON.stringify(CATALOG.memory_routes || []));
+  if (!editedRoutes.length) editedRoutes = [{ skill: "example", trigger: "describe trigger condition" }];
+  editMode = true;
+  document.getElementById("routes-section").classList.add("edit-mode");
+  renderRoutes(editedRoutes);
+  document.getElementById("routes-body").classList.add("show");
+  toast("Editing routes. Click Save Routes when done.", "success");
+}
+
+function addNewRoute() {
+  editedRoutes.push({ skill: "new-skill", trigger: "describe when to trigger" });
+  renderRoutes(editedRoutes);
+}
+
+function removeRoute(i) {
+  editedRoutes.splice(i, 1);
+  renderRoutes(editedRoutes);
+}
+
+async function saveEditedRoutes() {
+  var data = { version: 1, updated: new Date().toISOString().slice(0,10), routes: editedRoutes };
+  var jsonStr = JSON.stringify(data, null, 2);
+
+  // Try File System Access API for routes.json
+  if (window.showOpenFilePicker && !routesFileHandle) {
+    try {
+      [routesFileHandle] = await window.showOpenFilePicker({
+        types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }],
+        suggestedName: 'routes.json'
+      });
+    } catch (e) {}
+  }
+
+  if (routesFileHandle) {
+    try {
+      var w = await routesFileHandle.createWritable();
+      await w.write(jsonStr);
+      await w.close();
+      toast("Saved to routes.json! Run: python regenerate.py --sync-routes", "success");
+      editMode = false; document.getElementById("routes-section").classList.remove("edit-mode"); renderRoutes(null); return;
+    } catch (e) { toast("Direct save failed. Falling back to clipboard.", "error"); }
+  }
+
+  // Clipboard fallback
+  try {
+    await navigator.clipboard.writeText(jsonStr);
+    toast("Copied routes.json content! Save to ~/.claude/skills/skill-catalog/routes.json, then run: python regenerate.py --sync-routes", "success");
+  } catch (e) {
+    toast("Could not copy. See console.", "error");
+  }
+  editMode = false; document.getElementById("routes-section").classList.remove("edit-mode"); renderRoutes(null);
+}
+
+function cancelEdit() {
+  editMode = false; editedRoutes = []; routesFileHandle = null;
+  document.getElementById("routes-section").classList.remove("edit-mode");
+  renderRoutes(null);
+  toast("Edit cancelled.", "");
+}
+
+// --- AI Plan Routes ---
+
+function aiPlanRoutes() {
+  var skillsWithUsage = allSkills.filter(function(s) { return s.usage && s.usage.count > 0; })
+    .sort(function(a, b) { return b.usage.count - a.usage.count; });
+  var topSkills = skillsWithUsage.slice(0, 10).map(function(s) {
+    return s.name + " (" + s.usage.count + " calls)";
+  }).join("\\n");
+  var currentRoutes = (CATALOG.memory_routes || []).map(function(r) {
+    return "/" + r.skill + " -> " + r.trigger;
+  }).join("\\n");
+  var prompt = "I need you to design explicit routing rules for my Claude Code skills.\\n\\n" +
+    "Top skills by usage:\\n" + topSkills + "\\n\\n" +
+    "Current routes:\\n" + (currentRoutes || "(none)") + "\\n\\n" +
+    "Please:\\n" +
+    "1. Suggest trigger conditions in natural Chinese for high-usage skills\\n" +
+    "2. Avoid overlaps between skills with similar domains\\n" +
+    "3. Output the complete JSON for ~/.claude/skills/skill-catalog/routes.json\\n" +
+    "4. Then run: python regenerate.py --sync-routes";
+  navigator.clipboard.writeText(prompt).then(function() {
+    toast("AI plan prompt copied! Paste to Claude to auto-design routes.", "success");
+  });
+}
+
+renderRoutes();
 renderCards();
 </script>
 </body>

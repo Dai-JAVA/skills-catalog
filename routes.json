@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "updated": "2026-06-04",
+  "routes": [
+    {
+      "skill": "brainstorming",
+      "trigger": "涉及功能设计、新组件、架构选型、创造性开发工作",
+      "priority": 2
+    },
+    {
+      "skill": "systematic-debugging",
+      "trigger": "遇到任何 bug、测试失败、异常行为时，在动手修之前",
+      "priority": 1
+    },
+    {
+      "skill": "test-driven-development",
+      "trigger": "实现任何 feature 或 bugfix 之前",
+      "priority": 2
+    }
+  ]
+}

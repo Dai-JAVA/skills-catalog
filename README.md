@@ -10,11 +10,9 @@ A browsable, searchable skill directory for Claude Code. When you have 30+ skill
 - **Categorizes** them intelligently (manual mapping + keyword similarity + auto-create new categories)
 - **Generates** an interactive HTML viewer with search, category filtering, dark/light theme
 - **Tracks usage** — scans Claude Code transcripts to show how often each skill is called, with session history
+- **Manages routing** — visual editor for memory-based explicit routing rules that boost skill hit rate to 100%
+- **Suggests routes** — analyzes transcripts to recommend routing rules with conflict detection
 - **One command** to update everything: `python regenerate.py --with-usage`
-
-## Screenshot
-
-![Screenshot](screenshot.png)
 
 The HTML viewer provides:
 - Real-time search by skill name, description, or trigger keywords
@@ -22,6 +20,8 @@ The HTML viewer provides:
 - Click any card → detail panel with full SKILL.md content preview
 - Usage statistics: call counts, last used dates, session history
 - Delete skills from the UI (copies terminal command to clipboard)
+- **Memory Routes section** — view, edit, add, delete routing rules visually
+- **AI Plan button** — generates a prompt for Claude to auto-design routing rules
 - Keyboard shortcuts: `/` to search, `1-9` jump categories, `Ctrl+T` toggle theme
 - Dark/light theme auto-detection + manual toggle
 - Mobile responsive
@@ -51,6 +51,7 @@ skill-catalog/
 ├── SKILL.md                 # Skill definition → enables /skill-catalog
 ├── regenerate.py            # Auto-update engine (the core)
 ├── catalog.template.html    # HTML viewer template
+├── routes.json              # Explicit routing rules (edit this!)
 ├── category-mapping.txt     # Your skill→category assignments (edit this!)
 │
 ├── catalog.json             # GENERATED — structured data
@@ -100,8 +101,28 @@ Click "history" to see full session list with timestamps and prompts.
 |---------|-------------|
 | `python regenerate.py` | Basic regeneration (no usage data) |
 | `python regenerate.py --with-usage` | Full regeneration with call statistics |
+| `python regenerate.py --with-usage --suggest-routes` | Above + analyze transcripts for routing suggestions |
+| `python regenerate.py --sync-routes` | Sync `routes.json` → memory file (`skill_auto_trigger.md`) |
 | `python regenerate.py --dry-run` | Preview without writing files |
 | `python regenerate.py --verbose` | Show per-skill categorization decisions |
+
+## Routing System
+
+Explicit routing rules stored in `routes.json` let you bypass the skill trigger-matching lottery. When a route is active, Claude invokes the skill with 100% reliability — no guessing between similar skills.
+
+```
+Memory Routes area in HTML → Edit → modify rules → Save → runs.json updated
+                                                              ↓
+                                              python regenerate.py --sync-routes
+                                                              ↓
+                                              skill_auto_trigger.md (auto-generated)
+                                                              ↓
+                                              Next Claude session: routes take effect
+```
+
+### AI Route Planning
+
+Click the **AI Plan** button in the Memory Routes section. It copies a prompt with your usage data. Paste it to Claude and it will design optimal routing rules, then write them directly to `routes.json`.
 
 ## How the HTML Works
 
