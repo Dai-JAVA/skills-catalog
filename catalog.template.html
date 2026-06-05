@@ -84,6 +84,33 @@ body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:v
 .usage-count{font-weight:700;color:var(--accent)}
 .usage-sessions{font-size:9px;color:var(--text2);margin-left:auto;cursor:pointer}
 .usage-sessions:hover{color:var(--accent);text-decoration:underline}
+.main-tabs{display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:14px}
+.main-tab{padding:8px 20px;cursor:pointer;font-size:13px;font-weight:500;color:var(--text2);border:none;background:none;font-family:inherit;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all .15s}
+.main-tab:hover{color:var(--text)}
+.main-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tab-content{display:none}
+.tab-content.active{display:block}
+.overlap-summary{display:flex;gap:20px;margin-bottom:16px;flex-wrap:wrap}
+.overlap-stat{background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius);padding:14px 18px;min-width:140px}
+.overlap-stat .num{font-size:28px;font-weight:700}
+.overlap-stat .label{font-size:11px;color:var(--text2);margin-top:2px}
+.overlap-stat.high .num{color:#dc2626}
+.overlap-stat.medium .num{color:#f59e0b}
+.overlap-stat.low .num{color:var(--text2)}
+.overlap-pair{background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;margin-bottom:12px;display:flex;gap:16px;align-items:flex-start}
+.overlap-pair.high{border-left:4px solid #dc2626}
+.overlap-pair.medium{border-left:4px solid #f59e0b}
+.overlap-pair.low{border-left:4px solid var(--border)}
+.overlap-pair .pair-skills{display:flex;align-items:center;gap:8px;font-family:monospace;font-size:14px;font-weight:600;min-width:340px}
+.overlap-pair .pair-arrow{color:var(--text2)}
+.overlap-pair .pair-body{flex:1}
+.overlap-pair .pair-scores{display:flex;gap:12px;font-size:11px;color:var(--text2);margin-top:4px}
+.overlap-pair .pair-scores span{background:var(--chip-bg);padding:2px 8px;border-radius:10px}
+.overlap-pair .pair-rule{font-size:12px;color:var(--text);margin-top:8px;padding:8px 12px;background:var(--sidebar-active);border-radius:var(--radius);line-height:1.5}
+.overlap-pair .pair-rule strong{color:var(--accent)}
+.overlap-filter{display:flex;gap:8px;margin-bottom:16px}
+.overlap-filter button{font-size:11px;padding:4px 12px;border-radius:16px;border:1px solid var(--border);background:var(--surface);color:var(--text2);cursor:pointer;font-family:inherit}
+.overlap-filter button.active{background:var(--accent);color:#fff;border-color:var(--accent)}
 .detail-overlay{display:none;position:fixed;inset:0;background:var(--overlay);z-index:50}
 .detail-overlay.show{display:block}
 .detail-panel{position:fixed;top:0;right:0;width:520px;max-width:100vw;height:100vh;background:var(--surface);border-left:1px solid var(--border);z-index:51;overflow-y:auto;transform:translateX(100%);transition:transform .25s ease}
@@ -146,7 +173,12 @@ body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:v
 </div>
 <div class="pill-bar" id="pill-bar"><button class="pill active" data-cat="all">All</button></div>
 </header>
-<div class="content"><div class="routes-section" id="routes-section" style="display:none"><div class="routes-header" id="routes-header" onclick="toggleRoutes()"><h3>Memory Routes</h3><div style="display:flex;align-items:center;gap:8px"><button class="btn" style="font-size:10px;padding:2px 8px" id="routes-edit-btn" onclick="event.stopPropagation();startEditRoutes()">Edit</button><button class="btn" style="font-size:10px;padding:2px 8px" id="routes-ai-btn" onclick="event.stopPropagation();aiPlanRoutes()" title="Copy AI planning prompt">AI Plan</button><span class="routes-count" id="routes-count">0</span><span class="routes-toggle" id="routes-toggle">&#9654;</span></div></div><div class="routes-body" id="routes-body"></div></div><div class="card-grid" id="card-grid"></div></div>
+<div class="content"><div class="main-tabs" id="main-tabs">
+<button class="main-tab active" data-tab="skills" onclick="switchTab('skills')">Skills</button>
+<button class="main-tab" data-tab="overlap" onclick="switchTab('overlap')">Overlap <span id="overlap-badge" style="display:none"></span></button>
+<button class="main-tab" data-tab="health" onclick="switchTab('health')">Health <span id="health-badge" style="display:none"></span></button>
+</div>
+<div class="routes-section" id="routes-section" style="display:none"><div class="routes-header" id="routes-header" onclick="toggleRoutes()"><h3>Memory Routes</h3><div style="display:flex;align-items:center;gap:8px"><button class="btn" style="font-size:10px;padding:2px 8px" id="routes-edit-btn" onclick="event.stopPropagation();startEditRoutes()">Edit</button><button class="btn" style="font-size:10px;padding:2px 8px" id="routes-ai-btn" onclick="event.stopPropagation();aiPlanRoutes()" title="Copy AI planning prompt">AI Plan</button><span class="routes-count" id="routes-count">0</span><span class="routes-toggle" id="routes-toggle">&#9654;</span></div></div><div class="routes-body" id="routes-body"></div></div><div class="tab-content active" id="tab-skills"><div class="card-grid" id="card-grid"></div></div><div class="tab-content" id="tab-overlap"><div id="overlap-content"></div></div><div class="tab-content" id="tab-health"><div id="health-content"></div></div></div>
 </main>
 </div>
 <div class="detail-overlay" id="detail-overlay"></div>
@@ -593,6 +625,127 @@ function aiPlanRoutes() {
   });
 }
 
+function switchTab(name) {
+  document.querySelectorAll(".main-tab").forEach(function(t) { t.classList.toggle("active", t.dataset.tab === name); });
+  document.querySelectorAll(".tab-content").forEach(function(c) { c.classList.toggle("active", c.id === "tab-" + name); });
+}
+function renderOverlaps() {
+  var data = CATALOG.overlaps;
+  var container = document.getElementById("overlap-content");
+  var badge = document.getElementById("overlap-badge");
+  if (!data || !data.total_pairs) { container.innerHTML = '<p style="color:var(--text2);padding:20px">No overlap data yet. Run <code>python regenerate.py --manifest-only</code> to generate.</p>'; return; }
+
+  badge.style.display = "";
+  badge.textContent = data.high_overlap + data.medium_overlap;
+  badge.style.cssText = "font-size:9px;background:" + (data.high_overlap > 0 ? "#fee2e2;color:#dc2626" : "var(--chip-bg);color:var(--text2)") + ";padding:1px 5px;border-radius:8px;margin-left:4px";
+
+  var html = '<div class="overlap-summary">' +
+    '<div class="overlap-stat high"><div class="num">' + (data.high_overlap || 0) + '</div><div class="label">High Overlap</div></div>' +
+    '<div class="overlap-stat medium"><div class="num">' + (data.medium_overlap || 0) + '</div><div class="label">Medium Overlap</div></div>' +
+    '<div class="overlap-stat low"><div class="num">' + (data.total_pairs - data.high_overlap - data.medium_overlap) + '</div><div class="label">Low / Info</div></div>' +
+    '<div class="overlap-stat"><div class="num">' + (data.exclusion_rules ? data.exclusion_rules.length : 0) + '</div><div class="label">Exclusion Rules</div></div>' +
+  '</div>';
+
+  html += '<div class="overlap-filter"><button class="active" onclick="filterOverlaps(\"all\",this)">All</button>' +
+    '<button onclick="filterOverlaps(\"high\",this)">High</button>' +
+    '<button onclick="filterOverlaps(\"medium\",this)">Medium</button>' +
+    '<button onclick="filterOverlaps(\"rules\",this)">With Rules</button></div>';
+
+  html += '<div id="overlap-list">' + renderOverlapPairs(data.overlap_pairs, "all") + '</div>';
+  container.innerHTML = html;
+}
+
+function renderOverlapPairs(pairs, filter) {
+  return pairs.filter(function(p) {
+    if (filter === "all") return true;
+    if (filter === "high") return p.severity === "high";
+    if (filter === "medium") return p.severity === "medium";
+    if (filter === "rules") return p.suggested_rule && p.suggested_rule.length > 0;
+    return true;
+  }).map(function(p) {
+    var cats = (p.cat_a || p.cat_b) ? ' <span style="font-size:10px;color:var(--text2)">(' + esc(p.cat_a || "") + (p.cat_a && p.cat_b ? " x " : "") + esc(p.cat_b || "") + ')</span>' : '';
+    return '<div class="overlap-pair ' + p.severity + '" data-severity="' + p.severity + '">' +
+      '<div class="pair-skills"><span style="color:var(--accent)">/' + esc(p.skill_a) + '</span>' +
+      '<span class="pair-arrow">&#8644;</span>' +
+      '<span style="color:var(--accent)">/' + esc(p.skill_b) + '</span></div>' +
+      '<div class="pair-body">' +
+        '<div class="pair-scores">' +
+          '<span>Trigger: ' + (p.trigger_overlap * 100).toFixed(0) + '%</span>' +
+          '<span>Content: ' + (p.functional_overlap * 100).toFixed(0) + '%</span>' +
+          (p.scenario_overlap > 0 ? '<span>Scenario: ' + (p.scenario_overlap * 100).toFixed(0) + '%</span>' : '') +
+          '<span>Combined: <strong>' + (p.combined_score * 100).toFixed(0) + '%</strong></span>' +
+        '</div>' + cats +
+        (p.shared_triggers && p.shared_triggers.length ? '<div style="font-size:10px;color:var(--text2);margin-top:4px">Shared: ' + p.shared_triggers.map(function(t){return '<code>'+esc(t)+'</code>';}).join(', ') + '</div>' : '') +
+        (p.suggested_rule ? '<div class="pair-rule"><strong>Rule: </strong>' + esc(p.suggested_rule) + '</div>' : '') +
+      '</div>' +
+    '</div>';
+  }).join("");
+}
+
+function filterOverlaps(f, btn) {
+  document.querySelectorAll(".overlap-filter button").forEach(function(b){b.classList.remove("active")});
+  btn.classList.add("active");
+  document.getElementById("overlap-list").innerHTML = renderOverlapPairs(CATALOG.overlaps.overlap_pairs, f);
+}
+
+function renderHealth() {
+  var data = CATALOG.health;
+  var container = document.getElementById("health-content");
+  var badge = document.getElementById("health-badge");
+  if (!data || !data.scores) { container.innerHTML = '<p style="color:var(--text2);padding:20px">No health data yet. Run <code>python regenerate.py --health-only</code> to generate.</p>'; return; }
+
+  var s = data.stats;
+  badge.style.display = "";
+  badge.textContent = s.grade_d + " zombies";
+  badge.style.cssText = "font-size:9px;background:" + (s.grade_d > 5 ? "#fee2e2;color:#dc2626" : "var(--chip-bg);color:var(--text2)") + ";padding:1px 5px;border-radius:8px;margin-left:4px";
+
+  var te = data.token_economy;
+  var html = '<div class="overlap-summary">' +
+    '<div class="overlap-stat"><div class="num" style="color:' + (s.avg_score > 60 ? '#10b981' : s.avg_score > 40 ? '#f59e0b' : '#dc2626') + '">' + s.avg_score + '</div><div class="label">Avg Score</div></div>' +
+    '<div class="overlap-stat high"><div class="num">' + s.grade_d + '</div><div class="label">Zombies (D)</div></div>' +
+    '<div class="overlap-stat medium"><div class="num">' + s.grade_a + '</div><div class="label">Healthy (A)</div></div>' +
+    '<div class="overlap-stat"><div class="num">' + (te.estimated_waste_tokens_per_month / 1000).toFixed(0) + 'K</div><div class="label">Tokens/mo wasted</div></div>' +
+  '</div>';
+
+  // Token economy note
+  html += '<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:14px;font-size:12px">';
+  html += '<strong>Token Economy</strong>: ' + te.total_skills + ' skills consume ~' + te.total_est_tokens_per_session + ' tokens/session. ';
+  html += te.zombie_skills_count + ' zombie skills (0 calls) waste ~' + (te.estimated_waste_tokens_per_month / 1000).toFixed(0) + 'K tokens/month. ';
+  html += '<span style="color:var(--text2);">Zombies: ' + te.zombie_names.slice(0,8).map(esc).join(', ') + (te.zombie_names.length > 8 ? '...' : '') + '</span></div>';
+
+  // Recommendations
+  if (data.recommendations && data.recommendations.length) {
+    html += '<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:14px;font-size:12px">';
+    html += '<strong>Recommendations</strong>:<br>';
+    data.recommendations.slice(0,8).forEach(function(r) {
+      var icon = r.action === 'delete' ? '&#x2716;' : (r.action === 'route' ? '&#x2192;' : '&#x26a0;');
+      var color = r.action === 'delete' ? 'var(--danger)' : (r.action === 'route' ? 'var(--accent)' : '#f59e0b');
+      html += '<div style="padding:3px 0"><span style="color:' + color + '">' + icon + ' <strong>[' + r.action.toUpperCase() + ']</strong></span> ' + esc(r.skill) + ': ' + esc(r.reason) + '</div>';
+    });
+    html += '</div>';
+  }
+
+  // Score table
+  html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">';
+  html += '<tr style="border-bottom:1px solid var(--border)"><th style="text-align:left;padding:6px 8px">Skill</th><th style="padding:6px 8px">Score</th><th style="padding:6px 8px">Grade</th><th style="padding:6px 8px">Calls</th><th style="padding:6px 8px">Tokens</th><th style="padding:6px 8px">Routed</th></tr>';
+  data.scores.forEach(function(s) {
+    var gColor = s.grade === 'A' ? '#10b981' : (s.grade === 'B' ? '#2563eb' : (s.grade === 'C' ? '#f59e0b' : '#dc2626'));
+    html += '<tr style="border-bottom:1px solid var(--border)">' +
+      '<td style="padding:6px 8px"><span style="font-family:monospace;color:var(--accent)">' + esc(s.skill) + '</span></td>' +
+      '<td style="padding:6px 8px"><strong>' + s.score + '</strong></td>' +
+      '<td style="padding:6px 8px"><span style="font-weight:700;color:' + gColor + '">' + s.grade + '</span></td>' +
+      '<td style="padding:6px 8px;color:var(--text2)">' + (s.calls || 0) + '</td>' +
+      '<td style="padding:6px 8px;color:var(--text2)">~' + (s.est_tokens || 0) + '</td>' +
+      '<td style="padding:6px 8px">' + (s.routed ? '<span style="color:#10b981">&#x2713;</span>' : '-') + '</td>' +
+    '</tr>';
+  });
+  html += '</table></div>';
+
+  container.innerHTML = html;
+}
+
+renderHealth();
+renderOverlaps();
 renderRoutes();
 renderCards();
 </script>

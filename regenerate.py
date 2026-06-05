@@ -190,9 +190,9 @@ def extract_keywords(text):
 # --- Transcript Scanner ------------------------------------------------------
 
 # Known name mappings: transcript tool-call name → canonical SKILL.md name
-# Add your own mappings here if directory names differ from SKILL.md names.
 NAME_ALIASES = {
-    # Example: "My-Skill-Dir": "my-skill-name",
+    # Example: map directory names to canonical SKILL.md names
+    # "My-Skill-Dir": "my-skill-name",
 }
 
 def normalize_skill_name(name):
@@ -441,24 +441,18 @@ def load_pending_deletes():
 # --- Route Management --------------------------------------------------------
 
 ROUTES_JSON = CATALOG_DIR / "routes.json"
-def _find_memory_dir():
-    """Find the memory directory under .claude/projects/ for this machine."""
-    projects_dir = Path.home() / ".claude" / "projects"
-    if not projects_dir.exists():
-        return None
-    # Look for a project directory that has a memory/ subdirectory
-    for d in sorted(projects_dir.iterdir()):
-        if d.is_dir() and (d / "memory").is_dir():
-            return d / "memory"
-    return None
-
-MEMORY_ROUTE_PATH = None  # Lazily resolved via _resolve_memory_path()
+MEMORY_ROUTE_PATH = None
 
 def _resolve_memory_path():
     global MEMORY_ROUTE_PATH
     if MEMORY_ROUTE_PATH is None:
-        mem_dir = _find_memory_dir()
-        MEMORY_ROUTE_PATH = (mem_dir / "skill_auto_trigger.md") if mem_dir else None
+        projects_dir = Path.home() / ".claude" / "projects"
+        for d in sorted(projects_dir.iterdir()) if projects_dir.exists() else []:
+            if d.is_dir() and (d / "memory").is_dir():
+                MEMORY_ROUTE_PATH = d / "memory" / "skill_auto_trigger.md"
+                break
+        if MEMORY_ROUTE_PATH is None:
+            MEMORY_ROUTE_PATH = Path.home() / ".claude" / "projects" / "default" / "memory" / "skill_auto_trigger.md"
     return MEMORY_ROUTE_PATH
 
 
@@ -479,10 +473,9 @@ def load_existing_routes():
             pass
 
     # Fallback: parse memory file
-    mem_path = _resolve_memory_path()
-    if mem_path and mem_path.exists():
+    if MEMORY_ROUTE_PATH.exists():
         try:
-            with open(mem_path, 'r', encoding='utf-8') as f:
+            with open(MEMORY_ROUTE_PATH, 'r', encoding='utf-8') as f:
                 content = f.read()
         except Exception:
             return []
@@ -557,16 +550,13 @@ def sync_routes_to_memory():
 
     content = '\n'.join(lines) + '\n'
 
-    mem_path = _resolve_memory_path()
-    if not mem_path:
-        print("  Could not find memory directory. Skipping sync.")
-        return False
+    # Ensure memory directory exists
+    MEMORY_ROUTE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-    mem_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(mem_path, 'w', encoding='utf-8') as f:
+    with open(MEMORY_ROUTE_PATH, 'w', encoding='utf-8') as f:
         f.write(content)
 
-    print(f"  Synced {len(routes)} routes to {mem_path}")
+    print(f"  Synced {len(routes)} routes to {MEMORY_ROUTE_PATH}")
     return True
 
 
@@ -653,9 +643,327 @@ def generate_category_name(skill):
     return "Other Tools"
 
 
+# --- Overlap Detection Engine -------------------------------------------------
+
+def compute_overlaps(all_skills_list, usage_data=None):
+    """Compute pairwise overlap matrix (trigger + functional + scenario dims).
+    Returns {overlap_pairs: [...], exclusion_rules: [...], stats: {...}}
+    """
+    pairs = []
+    for i, sa in enumerate(all_skills_list):
+        for j, sb in enumerate(all_skills_list):
+            if i >= j:
+                continue
+
+            ta = set(sa.get("trigger_keywords", []))
+            tb = set(sb.get("trigger_keywords", []))
+            trigger_overlap = _jaccard(ta, tb)
+
+            fa = set(_extract_words(sa.get("description", "")))
+            fb = set(_extract_words(sb.get("description", "")))
+            if sa.get("body"):
+                fa.update(_extract_words(sa["body"]))
+            if sb.get("body"):
+                fb.update(_extract_words(sb["body"]))
+            functional_overlap = _jaccard(fa, fb)
+
+            scenario_overlap = 0.0
+            if usage_data:
+                ua = usage_data.get(sa["name"], {})
+                ub = usage_data.get(sb["name"], {})
+                sess_a = {s["session_id"] for s in ua.get("sessions", [])}
+                sess_b = {s["session_id"] for s in ub.get("sessions", [])}
+                union = len(sess_a | sess_b)
+                if union > 0:
+                    scenario_overlap = len(sess_a & sess_b) / union
+
+            combined = round(trigger_overlap * 0.40 + functional_overlap * 0.35 + scenario_overlap * 0.25, 3)
+            if combined < 0.06:
+                continue
+
+            severity = "high" if combined > 0.5 else ("medium" if combined > 0.2 else "low")
+            pairs.append({
+                "skill_a": sa["name"],
+                "skill_b": sb["name"],
+                "cat_a": sa.get("_category", {}).get("name", ""),
+                "cat_b": sb.get("_category", {}).get("name", ""),
+                "trigger_overlap": round(trigger_overlap, 3),
+                "functional_overlap": round(functional_overlap, 3),
+                "scenario_overlap": round(scenario_overlap, 3),
+                "combined_score": combined,
+                "severity": severity,
+                "shared_triggers": sorted(ta & tb)[:5],
+                "suggested_rule": _gen_rule(sa, sb, combined, severity)
+            })
+
+    pairs.sort(key=lambda p: -p["combined_score"])
+    rules = [p for p in pairs if p["severity"] in ("high", "medium") and p["suggested_rule"]]
+
+    return {
+        "generated_at": time.strftime("%Y-%m-%d %H:%M"),
+        "total_pairs": len(pairs),
+        "high_overlap": sum(1 for p in pairs if p["severity"] == "high"),
+        "medium_overlap": sum(1 for p in pairs if p["severity"] == "medium"),
+        "overlap_pairs": pairs,
+        "exclusion_rules": rules,
+        "stats": {
+            "skills_analyzed": len(all_skills_list),
+            "high_pairs": sum(1 for p in pairs if p["severity"] == "high"),
+            "medium_pairs": sum(1 for p in pairs if p["severity"] == "medium"),
+            "avg_overlap": round(sum(p["combined_score"] for p in pairs) / max(len(pairs), 1), 3)
+        }
+    }
+
+
+def _jaccard(sa, sb):
+    if not sa or not sb:
+        return 0.0
+    return len(sa & sb) / len(sa | sb)
+
+
+_STOP_WORDS = {'this','that','with','from','when','your','have','their','what',
+               'they','then','than','just','also','more','some','into','over',
+               'after','before','which','other','about','there','these','those','them','will'}
+
+def _extract_words(text):
+    if not text:
+        return []
+    return [w for w in re.findall(r'[a-z]{4,}', text.lower()) if w not in _STOP_WORDS]
+
+
+def _gen_rule(sa, sb, score, severity):
+    if severity == "low":
+        return ""
+    kw_a = set(sa.get("trigger_keywords", [])) - set(sb.get("trigger_keywords", []))
+    kw_b = set(sb.get("trigger_keywords", [])) - set(sa.get("trigger_keywords", []))
+
+    a_url = any(k in " ".join(kw_a).lower() for k in ["url","page","scrape","grab","fetch"])
+    b_search = any(k in " ".join(kw_b).lower() for k in ["search","find","look","query"])
+    a_browser = any(k in " ".join(kw_a).lower() for k in ["browser","chrome","html","open","electron"])
+    b_code = any(k in " ".join(kw_b).lower() for k in ["api","sdk","code","library","import"])
+
+    if a_url and b_search:
+        return f"When user provides a specific URL, use `{sa['name']}`. For open-ended searches, use `{sb['name']}`."
+    if a_browser and b_code:
+        return f"Use `{sa['name']}` for browser/UI tasks. Use `{sb['name']}` for code/API work."
+
+    if kw_a and kw_b:
+        ex_a = sorted(kw_a, key=len, reverse=True)[0] if kw_a else "X"
+        ex_b = sorted(kw_b, key=len, reverse=True)[0] if kw_b else "Y"
+        return f"For `{ex_a}` tasks use `{sa['name']}`; for `{ex_b}` use `{sb['name']}`."
+
+    return f"`{sa['name']}` and `{sb['name']}` overlap (score: {score:.2f}). Consider explicit routing or removing one."
+
+
+# --- Health Scoring Engine ----------------------------------------------------
+
+def compute_health(all_skills_list, usage_data, overlap_data, existing_routes):
+    """Score each skill on Usage + Uniqueness + Routing + Freshness - OverlapPenalty.
+    Returns {scores: [...], token_economy: {...}, recommendations: [...]}
+    """
+    routed_skills = set(r["skill"] for r in existing_routes)
+
+    # Build overlap lookup
+    overlap_lookup = defaultdict(list)
+    if overlap_data:
+        for p in overlap_data.get("overlap_pairs", []):
+            overlap_lookup[p["skill_a"]].append((p["skill_b"], p["combined_score"]))
+            overlap_lookup[p["skill_b"]].append((p["skill_a"], p["combined_score"]))
+
+    max_calls = max((usage_data.get(s["name"], {}).get("count", 0) for s in all_skills_list), default=1)
+    now = time.time()
+
+    scores = []
+    for s in all_skills_list:
+        name = s["name"]
+        u = usage_data.get(name, {})
+        calls = u.get("count", 0)
+        last_used = u.get("last_used", "")
+
+        # Usage (0-30): log-normalized
+        if calls > 0 and max_calls > 0:
+            usage_score = round((1 + min(calls / max(max_calls, 1), 1)) * 15, 1)
+        else:
+            usage_score = 0
+
+        # Uniqueness (0-25): inverse of avg overlap
+        overlaps = overlap_lookup.get(name, [])
+        avg_overlap = sum(o[1] for o in overlaps) / max(len(overlaps), 1) if overlaps else 0
+        uniqueness_score = round((1 - avg_overlap) * 25, 1)
+
+        # Routing (0-20)
+        routing_score = 20 if name in routed_skills else 0
+
+        # Freshness (0-15)
+        freshness_score = 0
+        if last_used:
+            try:
+                ts = last_used[:19]
+                dt = time.mktime(time.strptime(ts, "%Y-%m-%dT%H:%M:%S"))
+                days_ago = max((now - dt) / 86400, 0)
+                freshness_score = round(max(0, 15 - days_ago * 0.5), 1)
+            except Exception:
+                pass
+
+        # Overlap penalty (0 to -10)
+        high_overlap_count = sum(1 for _, sc in overlaps if sc > 0.4)
+        penalty = min(high_overlap_count * 3, 10)
+
+        total = round(usage_score + uniqueness_score + routing_score + freshness_score - penalty, 1)
+        total = max(0, min(100, total))
+
+        grade = "A" if total >= 75 else ("B" if total >= 55 else ("C" if total >= 35 else "D"))
+
+        # Token estimate: description length / 3.5
+        est_tokens = round(len(s.get("description", "")) / 3.5)
+
+        scores.append({
+            "skill": name,
+            "score": total,
+            "grade": grade,
+            "breakdown": {
+                "usage": usage_score,
+                "uniqueness": uniqueness_score,
+                "routing": routing_score,
+                "freshness": freshness_score,
+                "penalty": -penalty
+            },
+            "calls": calls,
+            "routed": name in routed_skills,
+            "est_tokens": est_tokens,
+            "overlap_count": len(overlaps)
+        })
+
+    scores.sort(key=lambda s: -s["score"])
+
+    # Token economy
+    zombie_skills = [s for s in scores if s["calls"] == 0 and not s["routed"]]
+    zombie_tokens = sum(s["est_tokens"] for s in zombie_skills)
+    total_tokens = sum(s["est_tokens"] for s in scores)
+    sessions_per_day = 5
+    monthly_waste_estimate = zombie_tokens * sessions_per_day * 30
+
+    token_economy = {
+        "total_skills": len(scores),
+        "total_est_tokens_per_session": total_tokens,
+        "zombie_skills_count": len(zombie_skills),
+        "zombie_est_tokens_per_session": zombie_tokens,
+        "zombie_names": [s["skill"] for s in zombie_skills],
+        "estimated_waste_tokens_per_month": monthly_waste_estimate,
+    }
+
+    # Recommendations
+    recommendations = []
+    for s in scores:
+        if s["score"] < 30 and s["calls"] == 0:
+            recommendations.append({"skill": s["skill"], "action": "delete", "reason": f"0 calls, score {s['score']:.0f}, costs ~{s['est_tokens']} tokens/session"})
+        elif s["score"] < 55 and s["calls"] > 0 and not s["routed"]:
+            recommendations.append({"skill": s["skill"], "action": "route", "reason": f"{s['calls']} calls, score {s['score']:.0f}, not routed"})
+        elif s["score"] >= 60 and s["overlap_count"] >= 3 and not s["routed"]:
+            recommendations.append({"skill": s["skill"], "action": "review", "reason": f"{s['calls']} calls, high overlap ({s['overlap_count']} pairs), needs routing"})
+
+    return {
+        "generated_at": time.strftime("%Y-%m-%d %H:%M"),
+        "scores": scores,
+        "token_economy": token_economy,
+        "recommendations": recommendations,
+        "stats": {
+            "avg_score": round(sum(s["score"] for s in scores) / max(len(scores), 1), 1),
+            "grade_a": sum(1 for s in scores if s["grade"] == "A"),
+            "grade_b": sum(1 for s in scores if s["grade"] == "B"),
+            "grade_c": sum(1 for s in scores if s["grade"] == "C"),
+            "grade_d": sum(1 for s in scores if s["grade"] == "D"),
+            "routed": sum(1 for s in scores if s["routed"]),
+            "zombies": len(zombie_skills)
+        }
+    }
+
+
+# --- Manifest Generator & CLAUDE.md Injection ---------------------------------
+
+CLAUDE_MD_PATH = Path.home() / "CLAUDE.md"
+MANIFEST_MARKER_START = "<!-- SKILL-CATALOG-MANIFEST-START -->"
+MANIFEST_MARKER_END = "<!-- SKILL-CATALOG-MANIFEST-END -->"
+
+
+def generate_manifest(catalog, overlap_data, health_data, level="standard"):
+    """Generate a condensed skill manifest for CLAUDE.md injection.
+    Levels: minimal (~200t), standard (~500t), full (~800t)
+    """
+    lines = []
+    lines.append(MANIFEST_MARKER_START)
+    lines.append("")
+    lines.append("## Active Skills Summary (auto-generated by skill-catalog)")
+    lines.append(f"*{catalog['metadata']['total_skills']} skills across {catalog['metadata']['category_count']} categories*")
+    lines.append("")
+
+    # Category summaries
+    for cat in catalog["categories"]:
+        skills_in_cat = cat["skills"]
+        if level == "minimal" and cat["skill_count"] <= 2:
+            continue
+        lines.append(f"### {cat['name']} ({cat['skill_count']} skills)")
+        for s in skills_in_cat:
+            usage_note = ""
+            if s.get("usage") and s["usage"].get("count", 0) > 0:
+                usage_note = f" [{s['usage']['count']} calls]"
+            # Truncate description to ~40 words
+            desc = s.get("description", "")
+            words = desc.split()[:40]
+            short_desc = " ".join(words)
+            if len(desc.split()) > 40:
+                short_desc += "..."
+            lines.append(f"- **`{s['name']}`**: {short_desc}{usage_note}")
+        lines.append("")
+
+    # Exclusion rules (if any)
+    if overlap_data and overlap_data.get("exclusion_rules"):
+        lines.append("### Key Differences (avoid confusion)")
+        for rule in overlap_data["exclusion_rules"][:8]:
+            if rule.get("suggested_rule"):
+                lines.append(f"- {rule['suggested_rule']}")
+        lines.append("")
+
+    # Routing info
+    routed = [r["skill"] for r in catalog.get("memory_routes", [])]
+    if routed and level != "minimal":
+        lines.append(f"### Routed Skills (100% hit rate)")
+        lines.append(f"- {'`' + '`, `'.join(routed) + '`'}")
+        lines.append("")
+
+    lines.append("> Auto-generated by skill-catalog. Run `python regenerate.py --inject` to update.")
+    lines.append(MANIFEST_MARKER_END)
+    return "\n".join(lines)
+
+
+def inject_to_claude_md(manifest_text):
+    """Inject manifest into CLAUDE.md, replacing previous injection or appending."""
+    if CLAUDE_MD_PATH.exists():
+        with open(CLAUDE_MD_PATH, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # Replace existing injection if present
+        if MANIFEST_MARKER_START in content and MANIFEST_MARKER_END in content:
+            pattern = re.escape(MANIFEST_MARKER_START) + r'.*?' + re.escape(MANIFEST_MARKER_END)
+            new_content = re.sub(pattern, manifest_text, content, flags=re.DOTALL)
+            with open(CLAUDE_MD_PATH, 'w', encoding='utf-8') as f:
+                f.write(new_content)
+            return "updated"
+
+        # Append if no existing injection
+        with open(CLAUDE_MD_PATH, 'a', encoding='utf-8') as f:
+            f.write("\n\n" + manifest_text + "\n")
+        return "appended"
+
+    # Create new CLAUDE.md
+    with open(CLAUDE_MD_PATH, 'w', encoding='utf-8') as f:
+        f.write(manifest_text + "\n")
+    return "created"
+
+
 # --- Core Regeneration -------------------------------------------------------
 
-def regenerate(dry_run=False, verbose=False, with_usage=False, suggest_routes_flag=False):
+def regenerate(dry_run=False, verbose=False, with_usage=False, suggest_routes_flag=False, optimize_flag=False, manifest_flag=False, health_flag=False):
     stats = {"local_scanned": 0, "builtin_added": 0, "new_categories": [],
              "total": 0, "deleted": 0}
 
@@ -821,6 +1129,35 @@ def regenerate(dry_run=False, verbose=False, with_usage=False, suggest_routes_fl
         print("\n  [DRY RUN] No files written.")
         return categorized
 
+    # Step 6.5: Compute overlaps + health (if --optimize / --manifest-only / --health-only)
+    existing_routes = load_existing_routes()
+    overlap_data = None
+    health_data = None
+    all_skills_flat = []
+    for cat_skills in categorized.values():
+        all_skills_flat.extend(cat_skills)
+
+    if optimize_flag or manifest_flag or health_flag:
+        if optimize_flag or manifest_flag:
+            print("\n|-> Computing skill overlaps...")
+            overlap_data = compute_overlaps(all_skills_flat, usage_data if with_usage else None)
+            print(f"  -> Found {overlap_data['total_pairs']} pairs "
+                  f"({overlap_data['high_overlap']} high, {overlap_data['medium_overlap']} medium overlap)")
+            if overlap_data["exclusion_rules"]:
+                print(f"  -> Generated {len(overlap_data['exclusion_rules'])} exclusion rules")
+
+        if optimize_flag or health_flag:
+            print("\n|-> Computing skill health scores...")
+            health_data = compute_health(all_skills_flat, usage_data if with_usage else {}, overlap_data, existing_routes)
+            grades = health_data["stats"]
+            print(f"  -> Avg score: {grades['avg_score']} | A:{grades['grade_a']} B:{grades['grade_b']} C:{grades['grade_c']} D:{grades['grade_d']}")
+            te = health_data["token_economy"]
+            print(f"  -> Token economy: {te['total_est_tokens_per_session']} tokens/session, {te['zombie_skills_count']} zombies wasting ~{te['estimated_waste_tokens_per_month']} tokens/month")
+            if health_data["recommendations"]:
+                print(f"  -> Recommendations: {len(health_data['recommendations'])} actions")
+                for r in health_data["recommendations"][:5]:
+                    print(f"     [{r['action'].upper()}] {r['skill']}: {r['reason']}")
+
     # Step 7: Generate catalog.json
     print("\n|-> Generating catalog.json...")
     categories_out = []
@@ -872,8 +1209,6 @@ def regenerate(dry_run=False, verbose=False, with_usage=False, suggest_routes_fl
             "skills": skills_out
         })
 
-    existing_routes = load_existing_routes()
-
     catalog = {
         "metadata": {
             "generated_at": time.strftime("%Y-%m-%d %H:%M"),
@@ -883,8 +1218,11 @@ def regenerate(dry_run=False, verbose=False, with_usage=False, suggest_routes_fl
             "category_count": len(categories_out),
             "has_usage_data": with_usage,
             "has_routes": len(existing_routes) > 0,
+            "has_overlaps": overlap_data is not None,
         },
         "memory_routes": existing_routes,
+        "overlaps": overlap_data,
+        "health": health_data,
         "categories": categories_out
     }
 
@@ -905,6 +1243,14 @@ def regenerate(dry_run=False, verbose=False, with_usage=False, suggest_routes_fl
     with open(CATALOG_HTML, 'w', encoding='utf-8') as f:
         f.write(html)
     print(f"  -> Wrote {CATALOG_HTML}")
+
+    # Step 10: Inject manifest into CLAUDE.md (if --inject)
+    if inject_flag:
+        print("\n|-> Injecting manifest into CLAUDE.md...")
+        manifest = generate_manifest(catalog, overlap_data, health_data, inject_level)
+        result = inject_to_claude_md(manifest)
+        est_tokens = round(len(manifest) / 3.5)
+        print(f"  -> {result.upper()} {CLAUDE_MD_PATH} (~{est_tokens} tokens, level: {inject_level})")
 
     print("\n[OK] Regeneration complete!")
     return categorized
@@ -997,6 +1343,18 @@ if __name__ == '__main__':
     with_usage = '--with-usage' in sys.argv
     suggest_routes_flag = '--suggest-routes' in sys.argv
     sync_routes_flag = '--sync-routes' in sys.argv
+    optimize_flag = '--optimize' in sys.argv
+    manifest_flag = '--manifest-only' in sys.argv
+    health_flag = '--health-only' in sys.argv
+    inject_flag = '--inject' in sys.argv
+
+    # Inject level: --inject minimal | --inject standard | --inject full
+    inject_level = "standard"
+    if inject_flag:
+        for lv in ["minimal", "standard", "full"]:
+            if lv in sys.argv:
+                inject_level = lv
+                break
 
     # Handle --sync-routes standalone
     if sync_routes_flag:
@@ -1015,8 +1373,20 @@ if __name__ == '__main__':
         print(f"  Usage scan : ENABLED (scanning {CLAUDE_PROJECTS_DIR})")
     if suggest_routes_flag:
         print(f"  Route suggest : ENABLED (analyzing trigger phrases)")
+    if optimize_flag:
+        print(f"  Optimize     : ENABLED (overlap + health + inject)")
+    if manifest_flag:
+        print(f"  Manifest     : ENABLED (overlap + exclusion rules)")
+    if health_flag:
+        print(f"  Health       : ENABLED (scoring + token economy + curation)")
+    if inject_flag:
+        print(f"  Inject       : ENABLED (level: {inject_level})")
     if dry_run:
         print("  Mode       : DRY RUN")
     print()
 
-    regenerate(dry_run=dry_run, verbose=verbose, with_usage=with_usage, suggest_routes_flag=suggest_routes_flag)
+    regenerate(dry_run=dry_run, verbose=verbose, with_usage=with_usage,
+               suggest_routes_flag=suggest_routes_flag,
+               optimize_flag=(optimize_flag or manifest_flag or health_flag),
+               manifest_flag=manifest_flag,
+               health_flag=health_flag)

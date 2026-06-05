@@ -102,9 +102,44 @@ Click "history" to see full session list with timestamps and prompts.
 | `python regenerate.py` | Basic regeneration (no usage data) |
 | `python regenerate.py --with-usage` | Full regeneration with call statistics |
 | `python regenerate.py --with-usage --suggest-routes` | Above + analyze transcripts for routing suggestions |
+| `python regenerate.py --with-usage --manifest-only` | Generate skill overlap matrix + exclusion rules |
+| `python regenerate.py --with-usage --health-only` | Compute health scores + token economy + curation recommendations |
+| `python regenerate.py --with-usage --optimize --inject` | Full pipeline: overlap + health + inject to CLAUDE.md |
+| `python regenerate.py --inject [minimal|standard|full]` | Inject skill manifest into CLAUDE.md |
 | `python regenerate.py --sync-routes` | Sync `routes.json` → memory file (`skill_auto_trigger.md`) |
 | `python regenerate.py --dry-run` | Preview without writing files |
 | `python regenerate.py --verbose` | Show per-skill categorization decisions |
+
+## Optimization Pipeline
+
+```
+--manifest-only        --health-only
+      │                     │
+      ▼                     ▼
+ overlap.json           health.json
+ (overlap matrix)       (scores + token economy)
+      │                     │
+      └────────┬────────────┘
+               ▼
+         catalog.html
+         (Overlap + Health tabs)
+               │
+               ▼
+         --inject
+         (CLAUDE.md auto-injection)
+```
+
+### Overlap Detection
+
+Computes pairwise similarity (trigger keywords × description text × session co-occurrence). Generates exclusion rules for high-overlap pairs and visualizes them in the HTML Overlap tab.
+
+### Health Dashboard
+
+Scores each skill on Usage (log-normalized calls) + Uniqueness (inverse of overlap) + Routing (is it in routes.json) + Freshness (recency). Includes token economy estimates and curation recommendations.
+
+### CLAUDE.md Injection
+
+Injects a compact skill manifest into `CLAUDE.md` with category summaries, key differences, and routing status. Marked with HTML comment markers for safe re-injection. Three levels: minimal (~200t), standard (~500t), full (~800t).
 
 ## Routing System
 
