@@ -157,7 +157,7 @@ body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:v
 <div class="app">
 <nav class="sidebar" id="sidebar">
 <div class="sidebar-logo"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>Skill Catalog</div>
-<button class="sidebar-item active" data-cat="all">All Skills<span class="sidebar-count" id="total-count">0</span></button>
+<button class="sidebar-item active" data-cat="all" onclick="selectCategory('all')">All Skills<span class="sidebar-count" id="total-count">0</span></button>
 <div id="sidebar-cats"></div>
 <div class="sidebar-footer" id="sidebar-footer">Loading...</div>
 </nav>
@@ -171,14 +171,15 @@ body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:v
 <button class="theme-btn" id="theme-btn" title="Theme">&#x263e;</button>
 </div>
 </div>
-<div class="pill-bar" id="pill-bar"><button class="pill active" data-cat="all">All</button></div>
+<div class="pill-bar" id="pill-bar"><button class="pill active" data-cat="all" onclick="selectCategory('all')">All</button></div>
 </header>
 <div class="content"><div class="main-tabs" id="main-tabs">
 <button class="main-tab active" data-tab="skills" onclick="switchTab('skills')">Skills</button>
 <button class="main-tab" data-tab="overlap" onclick="switchTab('overlap')">Overlap <span id="overlap-badge" style="display:none"></span></button>
 <button class="main-tab" data-tab="health" onclick="switchTab('health')">Health <span id="health-badge" style="display:none"></span></button>
+<button class="main-tab" data-tab="memory" onclick="switchTab('memory')">Memory <span id="memory-badge" style="display:none"></span></button>
 </div>
-<div class="routes-section" id="routes-section" style="display:none"><div class="routes-header" id="routes-header" onclick="toggleRoutes()"><h3>Memory Routes</h3><div style="display:flex;align-items:center;gap:8px"><button class="btn" style="font-size:10px;padding:2px 8px" id="routes-edit-btn" onclick="event.stopPropagation();startEditRoutes()">Edit</button><button class="btn" style="font-size:10px;padding:2px 8px" id="routes-ai-btn" onclick="event.stopPropagation();aiPlanRoutes()" title="Copy AI planning prompt">AI Plan</button><span class="routes-count" id="routes-count">0</span><span class="routes-toggle" id="routes-toggle">&#9654;</span></div></div><div class="routes-body" id="routes-body"></div></div><div class="tab-content active" id="tab-skills"><div class="card-grid" id="card-grid"></div></div><div class="tab-content" id="tab-overlap"><div id="overlap-content"></div></div><div class="tab-content" id="tab-health"><div id="health-content"></div></div></div>
+<div class="routes-section" id="routes-section" style="display:none"><div class="routes-header" id="routes-header" onclick="toggleRoutes()"><h3>Memory Routes</h3><div style="display:flex;align-items:center;gap:8px"><button class="btn" style="font-size:10px;padding:2px 8px" id="routes-edit-btn" onclick="event.stopPropagation();startEditRoutes()">Edit</button><button class="btn" style="font-size:10px;padding:2px 8px" id="routes-ai-btn" onclick="event.stopPropagation();aiPlanRoutes()" title="Copy AI planning prompt">AI Plan</button><span class="routes-count" id="routes-count">0</span><span class="routes-toggle" id="routes-toggle">&#9654;</span></div></div><div class="routes-body" id="routes-body"></div></div><div class="tab-content active" id="tab-skills"><div class="card-grid" id="card-grid"></div></div><div class="tab-content" id="tab-overlap"><div id="overlap-content"></div></div><div class="tab-content" id="tab-health"><div id="health-content"></div></div><div class="tab-content" id="tab-memory"><div id="memory-content"></div></div></div>
 </main>
 </div>
 <div class="detail-overlay" id="detail-overlay"></div>
@@ -486,6 +487,41 @@ function escAttr(s) {
   return (s || "").replace(/'/g, "\\'").replace(/"/g, "&quot;");
 }
 
+function execCmd(cmd, btnId) {
+  var btn = document.getElementById(btnId);
+  var prompt = "Please run this command:\n\n```bash\ncd ~/.claude/skills/skill-catalog && " + cmd + "\n```";
+
+  // Use textarea + execCommand (works on file://, unlike clipboard API)
+  var ta = document.createElement("textarea");
+  ta.value = prompt;
+  ta.style.position = "fixed"; ta.style.left = "-9999px"; ta.style.top = "0";
+  document.body.appendChild(ta);
+  ta.focus(); ta.select();
+
+  var ok = false;
+  try { ok = document.execCommand("copy"); } catch(e) {}
+
+  if (ok) {
+    btn.textContent = "Prompt Copied!";
+    btn.style.background = "#10b981"; btn.style.borderColor = "#10b981";
+    toast("Prompt copied! Paste to Claude Code, then refresh.", "success");
+  } else {
+    // Last resort: try clipboard API
+    navigator.clipboard.writeText(prompt).then(function() {
+      btn.textContent = "Prompt Copied!";
+      btn.style.background = "#10b981"; btn.style.borderColor = "#10b981";
+      toast("Prompt copied! Paste to Claude Code, then refresh.", "success");
+    }).catch(function() {
+      btn.textContent = "Failed";
+      btn.style.background = "var(--danger)";
+      toast("Could not copy. Run manually: cd ~/.claude/skills/skill-catalog && " + cmd, "error");
+    });
+  }
+
+  document.body.removeChild(ta);
+  setTimeout(function() { btn.textContent = "Generate Now"; btn.style.background = ""; btn.style.borderColor = ""; btn.disabled = false; }, 3000);
+}
+
 var editMode = false;
 var editedRoutes = [];
 var routesFileHandle = null;
@@ -633,7 +669,7 @@ function renderOverlaps() {
   var data = CATALOG.overlaps;
   var container = document.getElementById("overlap-content");
   var badge = document.getElementById("overlap-badge");
-  if (!data || !data.total_pairs) { container.innerHTML = '<p style="color:var(--text2);padding:20px">No overlap data yet. Run <code>python regenerate.py --manifest-only</code> to generate.</p>'; return; }
+  if (!data || !data.total_pairs) { container.innerHTML = '<div style="text-align:center;padding:40px 20px"><p style="color:var(--text2);margin-bottom:12px">No overlap data yet.</p><button class="btn btn-accent" id="gen-overlap-btn" onclick="execCmd(\'python regenerate.py --with-usage --manifest-only\',\'gen-overlap-btn\')">Generate Now</button><p style=\"color:var(--text2);margin-top:10px;font-size:11px\">Copies a prompt for Claude Code to run.</p></div>'; return; }
 
   badge.style.display = "";
   badge.textContent = data.high_overlap + data.medium_overlap;
@@ -692,7 +728,7 @@ function renderHealth() {
   var data = CATALOG.health;
   var container = document.getElementById("health-content");
   var badge = document.getElementById("health-badge");
-  if (!data || !data.scores) { container.innerHTML = '<p style="color:var(--text2);padding:20px">No health data yet. Run <code>python regenerate.py --health-only</code> to generate.</p>'; return; }
+  if (!data || !data.scores) { container.innerHTML = '<div style="text-align:center;padding:40px 20px"><p style="color:var(--text2);margin-bottom:12px">No health data yet.</p><button class="btn btn-accent" id="gen-health-btn" onclick="execCmd(\'python regenerate.py --with-usage --health-only\',\'gen-health-btn\')">Generate Now</button><p style=\"color:var(--text2);margin-top:10px;font-size:11px\">Copies a prompt for Claude Code to run.</p></div>'; return; }
 
   var s = data.stats;
   badge.style.display = "";
@@ -744,6 +780,55 @@ function renderHealth() {
   container.innerHTML = html;
 }
 
+function renderMemory() {
+  var data = CATALOG.memories;
+  var container = document.getElementById("memory-content");
+  var badge = document.getElementById("memory-badge");
+  if (!data || !data.memories) { container.innerHTML = '<div style="text-align:center;padding:40px 20px"><p style="color:var(--text2);margin-bottom:12px">No memory data yet.</p><button class="btn btn-accent" id="gen-memory-btn" onclick="execCmd(\'python regenerate.py --with-usage --memory\',\'gen-memory-btn\')">Generate Now</button><p style=\"color:var(--text2);margin-top:10px;font-size:11px\">Copies a prompt for Claude Code to scan memories.</p></div>'; return; }
+
+  badge.style.display = "";
+  badge.textContent = data.total_memories;
+  badge.style.cssText = "font-size:9px;background:var(--chip-bg);color:var(--text2);padding:1px 5px;border-radius:8px;margin-left:4px";
+
+  var html = '<div class="overlap-summary">' +
+    '<div class="overlap-stat"><div class="num">' + data.total_memories + '</div><div class="label">Memories</div></div>' +
+    '<div class="overlap-stat"><div class="num">' + (data.total_size_bytes / 1024).toFixed(1) + 'K</div><div class="label">Total Size</div></div>';
+
+  var tcs = data.type_counts || {};
+  for (var t in tcs) {
+    var colors = {feedback:"#dcfce7", project:"#dbeafe", reference:"#fef3c7", user:"#ede9fe"};
+    html += '<div class="overlap-stat"><div class="num" style="font-size:22px">' + tcs[t] + '</div><div class="label" style="background:' + (colors[t]||"#eee") + ';padding:2px 6px;border-radius:3px;display:inline-block;margin-top:4px">' + t + '</div></div>';
+  }
+  html += '</div>';
+
+  // Memory list
+  (data.memories || []).forEach(function(m) {
+    var typeColor = {feedback:"#10b981", project:"#3b82f6", reference:"#f59e0b", user:"#8b5cf6"};
+    var typeIcons = {feedback:"&#x2713;", project:"&#x1f4cb;", reference:"&#x1f517;", user:"&#x1f464;"};
+    html += '<div class="overlap-pair" style="border-left-color:' + (typeColor[m.type]||"var(--border)") + '">' +
+      '<div class="pair-skills" style="min-width:240px">' +
+        '<span style="color:var(--accent)">' + esc(m.name) + '</span>' +
+        '<span style="font-size:10px;display:inline-block;padding:1px 6px;border-radius:3px;background:' + (typeColor[m.type]||"#eee") + '20;color:' + (typeColor[m.type]||"var(--text2)") + ';margin-left:8px">' + (typeIcons[m.type]||"") + ' ' + m.type + '</span>' +
+      '</div>' +
+      '<div class="pair-body">' +
+        '<div style="font-size:12px;color:var(--text)">' + esc(m.description || "(no description)") + '</div>' +
+        '<div class="pair-scores">' +
+          '<span>' + (m.size_bytes / 1024).toFixed(1) + 'K</span>' +
+          '<span>Modified: ' + m.modified + '</span>' +
+          (m.session_id ? '<span>Session: ' + esc(m.session_id) + '</span>' : '') +
+          (m.links && m.links.length ? '<span>Links: ' + m.links.map(esc).join(", ") + '</span>' : '') +
+        '</div>' +
+        (m.linked_to && m.linked_to.length ? '<div style="font-size:10px;color:var(--text2);margin-top:4px">Linked to: ' + m.linked_to.map(function(l){return '<strong>' + esc(l) + '</strong>';}).join(", ") + '</div>' : '') +
+        (m.linked_from && m.linked_from.length ? '<div style="font-size:10px;color:var(--text2)">Linked from: ' + m.linked_from.map(function(l){return '<strong>' + esc(l) + '</strong>';}).join(", ") + '</div>' : '') +
+        (m.body_preview ? '<div style="font-size:11px;color:var(--text2);margin-top:4px;padding:8px;background:var(--bg);border-radius:4px;max-height:60px;overflow:hidden">' + esc(m.body_preview) + '</div>' : '') +
+      '</div>' +
+    '</div>';
+  });
+
+  container.innerHTML = html;
+}
+
+renderMemory();
 renderHealth();
 renderOverlaps();
 renderRoutes();

@@ -443,15 +443,24 @@ def load_pending_deletes():
 ROUTES_JSON = CATALOG_DIR / "routes.json"
 MEMORY_ROUTE_PATH = None
 
+def _find_memory_dir():
+    """Find the memory directory under .claude/projects/."""
+    projects_dir = Path.home() / ".claude" / "projects"
+    if not projects_dir.exists():
+        return None
+    for d in sorted(projects_dir.iterdir()):
+        if d.is_dir() and (d / "memory").is_dir():
+            return d / "memory"
+    return None
+
+
 def _resolve_memory_path():
     global MEMORY_ROUTE_PATH
     if MEMORY_ROUTE_PATH is None:
-        projects_dir = Path.home() / ".claude" / "projects"
-        for d in sorted(projects_dir.iterdir()) if projects_dir.exists() else []:
-            if d.is_dir() and (d / "memory").is_dir():
-                MEMORY_ROUTE_PATH = d / "memory" / "skill_auto_trigger.md"
-                break
-        if MEMORY_ROUTE_PATH is None:
+        mem_dir = _find_memory_dir()
+        if mem_dir:
+            MEMORY_ROUTE_PATH = mem_dir / "skill_auto_trigger.md"
+        else:
             MEMORY_ROUTE_PATH = Path.home() / ".claude" / "projects" / "default" / "memory" / "skill_auto_trigger.md"
     return MEMORY_ROUTE_PATH
 
@@ -961,9 +970,120 @@ def inject_to_claude_md(manifest_text):
     return "created"
 
 
+# --- Memory Scanner -----------------------------------------------------------
+
+def scan_memories():
+    """Scan all .md files in the memory directory.
+    Returns [{name, description, type, size, modified, session_id, links, body_preview}]
+    """
+    mem_dir = _find_memory_dir()
+    if not mem_dir:
+        return []
+
+    memories = []
+    for md_file in sorted(mem_dir.glob("*.md")):
+        if md_file.name == "MEMORY.md":
+            continue  # Skip index file
+
+        try:
+            with open(md_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except Exception:
+            continue
+
+        m = re.match(r'^---\s*\n(.*?)\n---', content, re.DOTALL)
+        name = ""
+        desc = ""
+        fm_text = ""
+        body = content
+
+        if m:
+            fm_text = m.group(1)
+            body = content[m.end():].strip()
+            nm = re.search(r'^name:\s*(.+)', fm_text, re.MULTILINE)
+            if nm:
+                name = nm.group(1).strip()
+            dm = re.search(r'^description:\s*(.+)', fm_text, re.MULTILINE)
+            if dm:
+                desc = dm.group(1).strip()
+        else:
+            # No frontmatter — extract name from first heading or filename
+            hm = re.match(r'^#\s+(.+)', content.strip(), re.MULTILINE)
+            if hm:
+                name = hm.group(1).strip()
+            else:
+                name = md_file.stem.replace("_", " ").replace("-", " ")
+            # Use first paragraph as description
+            para = re.search(r'\n\n(.+?)(?:\n\n|\n#)', body, re.DOTALL)
+            if para:
+                desc = para.group(1).strip()[:150]
+
+        mem_type = ""
+        tm = re.search(r'^\s*type:\s*(.+)', fm_text, re.MULTILINE)
+        if tm:
+            mem_type = tm.group(1).strip()
+        else:
+            # Also check top-level 'type' (some memories use it)
+            tm2 = re.search(r'^type:\s*(.+)', fm_text, re.MULTILINE)
+            if tm2:
+                mem_type = tm2.group(1).strip()
+
+        session_id = ""
+        if fm_text:
+            sm = re.search(r'originSessionId:\s*(.+)', fm_text, re.MULTILINE)
+            if sm:
+                session_id = sm.group(1).strip()[:12]
+
+        if not mem_type:
+            mem_type = "project"  # Default for frontmatter-less files
+
+        # Extract [[wikilinks]]
+        links = re.findall(r'\[\[([^\]]+)\]\]', body)
+
+        stat = md_file.stat()
+        memories.append({
+            "name": name,
+            "description": desc,
+            "type": mem_type,
+            "size_bytes": stat.st_size,
+            "modified": time.strftime("%Y-%m-%d %H:%M", time.localtime(stat.st_mtime)),
+            "session_id": session_id,
+            "links": links,
+            "filename": md_file.name,
+            "body_preview": body[:200]
+        })
+
+    # Build link graph: which memories link to which
+    for mem in memories:
+        mem["linked_to"] = []
+        mem["linked_from"] = []
+    for mem in memories:
+        for link in mem["links"]:
+            # Find matching memory by filename (link format: "filename-without-ext")
+            for other in memories:
+                if other["filename"].replace(".md", "") == link or other["name"] == link:
+                    if other["name"] not in mem["linked_to"]:
+                        mem["linked_to"].append(other["name"])
+                    if mem["name"] not in other["linked_from"]:
+                        other["linked_from"].append(mem["name"])
+
+    total_size = sum(m["size_bytes"] for m in memories)
+    type_counts = defaultdict(int)
+    for m in memories:
+        type_counts[m["type"]] += 1
+
+    return {
+        "generated_at": time.strftime("%Y-%m-%d %H:%M"),
+        "total_memories": len(memories),
+        "total_size_bytes": total_size,
+        "type_counts": dict(type_counts),
+        "memories": memories
+    }
+
+
 # --- Core Regeneration -------------------------------------------------------
 
-def regenerate(dry_run=False, verbose=False, with_usage=False, suggest_routes_flag=False, optimize_flag=False, manifest_flag=False, health_flag=False):
+def regenerate(dry_run=False, verbose=False, with_usage=False, suggest_routes_flag=False, optimize_flag=False, manifest_flag=False, health_flag=False, memory_flag=False):
     stats = {"local_scanned": 0, "builtin_added": 0, "new_categories": [],
              "total": 0, "deleted": 0}
 
@@ -1129,10 +1249,11 @@ def regenerate(dry_run=False, verbose=False, with_usage=False, suggest_routes_fl
         print("\n  [DRY RUN] No files written.")
         return categorized
 
-    # Step 6.5: Compute overlaps + health (if --optimize / --manifest-only / --health-only)
+    # Step 6.5: Compute overlaps + health + memory (if flags set)
     existing_routes = load_existing_routes()
     overlap_data = None
     health_data = None
+    memory_data = None
     all_skills_flat = []
     for cat_skills in categorized.values():
         all_skills_flat.extend(cat_skills)
@@ -1157,6 +1278,13 @@ def regenerate(dry_run=False, verbose=False, with_usage=False, suggest_routes_fl
                 print(f"  -> Recommendations: {len(health_data['recommendations'])} actions")
                 for r in health_data["recommendations"][:5]:
                     print(f"     [{r['action'].upper()}] {r['skill']}: {r['reason']}")
+
+        if memory_flag:
+            print("\n|-> Scanning memories...")
+            memory_data = scan_memories()
+            print(f"  -> Found {memory_data['total_memories']} memories ({memory_data['total_size_bytes']} bytes)")
+            tc = memory_data.get("type_counts", {})
+            print(f"  -> Types: {', '.join(f'{k}: {v}' for k, v in tc.items())}")
 
     # Step 7: Generate catalog.json
     print("\n|-> Generating catalog.json...")
@@ -1223,6 +1351,7 @@ def regenerate(dry_run=False, verbose=False, with_usage=False, suggest_routes_fl
         "memory_routes": existing_routes,
         "overlaps": overlap_data,
         "health": health_data,
+        "memories": memory_data,
         "categories": categories_out
     }
 
@@ -1346,6 +1475,7 @@ if __name__ == '__main__':
     optimize_flag = '--optimize' in sys.argv
     manifest_flag = '--manifest-only' in sys.argv
     health_flag = '--health-only' in sys.argv
+    memory_flag = '--memory' in sys.argv
     inject_flag = '--inject' in sys.argv
 
     # Inject level: --inject minimal | --inject standard | --inject full
@@ -1379,6 +1509,8 @@ if __name__ == '__main__':
         print(f"  Manifest     : ENABLED (overlap + exclusion rules)")
     if health_flag:
         print(f"  Health       : ENABLED (scoring + token economy + curation)")
+    if memory_flag:
+        print(f"  Memory       : ENABLED")
     if inject_flag:
         print(f"  Inject       : ENABLED (level: {inject_level})")
     if dry_run:
@@ -1387,6 +1519,7 @@ if __name__ == '__main__':
 
     regenerate(dry_run=dry_run, verbose=verbose, with_usage=with_usage,
                suggest_routes_flag=suggest_routes_flag,
-               optimize_flag=(optimize_flag or manifest_flag or health_flag),
+               optimize_flag=(optimize_flag or manifest_flag or health_flag or memory_flag),
                manifest_flag=manifest_flag,
-               health_flag=health_flag)
+               health_flag=health_flag,
+               memory_flag=memory_flag)
