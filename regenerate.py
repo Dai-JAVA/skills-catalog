@@ -628,18 +628,35 @@ def generate_category_name(skill):
     desc = skill.get('description', '')
     name = skill['name']
     domain_patterns = [
-        (r'(?:automation|browser|testing|scraping|crawling|extraction)', 'Automation & Tools'),
-        (r'(?:security|vulnerability|auth|permission)', 'Security & Permissions'),
-        (r'(?:database|sql|storage|cache|data)', 'Data & Storage'),
-        (r'(?:api|sdk|integration|service)', 'API & Integration'),
-        (r'(?:deploy|ci/cd|pipeline|build|release)', 'Deploy & DevOps'),
-        (r'(?:docs|documentation|writing|content)', 'Documentation & Content'),
-        (r'(?:monitor|logging|alert|observe)', 'Monitoring & Observability'),
-        (r'(?:ai|ml|model|training|inference)', 'AI & Machine Learning'),
-        (r'(?:mobile|ios|android|react native)', 'Mobile Development'),
-        (r'(?:game|unity|unreal|graphics)', 'Game Development'),
-        (r'(?:design|ui|ux|css|style|theme)', 'Design & UI'),
-        (r'(?:linux|windows|mac|os|system)', 'System & Platform'),
+        # Code & development
+        (r'(?:browser|chrome|cdp|webdriver|selenium|playwright|electron)', 'Browser Automation'),
+        (r'(?:scrap|extract|crawl|parse|fetch|download)', 'Web Scraping & Data'),
+        (r'(?:test|qa|debug|verify|verif|assert|bug)', 'Testing & Debugging'),
+        (r'(?:review|reviewer|PR|pull.request|merge|diff)', 'Code Review'),
+        (r'(?:plan|design|brainstorm|spec|architect)', 'Planning & Design'),
+        (r'(?:implement|code|develop|build|scaffold|generate|refactor)', 'Implementation'),
+        (r'(?:deploy|ci.?cd|pipeline|release|docker|k8s|kubernetes)', 'Deploy & DevOps'),
+        (r'(?:git|commit|branch|worktree|repo)', 'Version Control'),
+        (r'(?:api|sdk|integration|service|rest|graphql)', 'API & Integration'),
+        (r'(?:database|sql|storage|cache|redis|postgres|mongo)', 'Data & Storage'),
+        (r'(?:security|vulnerability|exploit|penetration|audit)', 'Security'),
+        # Content & media
+        (r'(?:video|animation|motion|blender|three\\.?js|3d|webgl|r3f)', 'Animation & 3D'),
+        (r'(?:lyric|song|music|melody|verse|chorus)', 'Content Creation'),
+        (r'(?:translate|humaniz|写作|文案|文字|文本|书写|歌词|视频)', 'Content Creation'),
+        (r'(?:UI|component|landing|dashboard|layout|style|css|tailwind)', 'Frontend Design'),
+        # AI & data
+        (r'(?:ai|llm|model|training|inference|prompt|rag)', 'AI & Machine Learning'),
+        (r'(?:research|search|find|discover|explore)', 'Research & Discovery'),
+        (r'(?:monitor|logging|alert|observe|telemetry)', 'Monitoring & Observability'),
+        # Platform & config
+        (r'(?:config|settings|permission|allow|hook|env)', 'Configuration & Settings'),
+        (r'(?:linux|windows|mac|os|terminal|shell|bash|cli)', 'System & Shell'),
+        (r'(?:slack|notion|figma|discord|spotify|vscode|desktop)', 'Desktop & Chat Apps'),
+        (r'(?:mobile|ios|android|react.native|flutter)', 'Mobile Development'),
+        (r'(?:game|unity|unreal|godot)', 'Game Development'),
+        # Fallback based on common verbs
+        (r'(?:learn|tutor|teach|explain|guide)', 'Learning & Guides'),
     ]
     combined = (desc + ' ' + name).lower()
     for pattern, cat_name in domain_patterns:
@@ -1177,10 +1194,21 @@ def regenerate(dry_run=False, verbose=False, with_usage=False, suggest_routes_fl
                 print(f"  |-> {name} -> [{matched_cat}] ({score:.0%})")
             continue
         new_cat = generate_category_name(skill)
-        categorized[new_cat].append(skill)
-        new_categories.add(new_cat)
-        if verbose:
-            print(f"  |-> {name} -> [{new_cat}] (NEW, {score:.0%})")
+        # Check if this new category matches an already-created new one
+        merged = False
+        for existing_new_cat in new_categories:
+            shared_words = set(w.lower() for w in re.findall(r'[A-Za-z]+', new_cat)) & set(w.lower() for w in re.findall(r'[A-Za-z]+', existing_new_cat))
+            if len(shared_words) >= 2 or new_cat == existing_new_cat:
+                categorized[existing_new_cat].append(skill)
+                merged = True
+                if verbose:
+                    print(f"  |-> {name} -> [{existing_new_cat}] (merged with existing new category)")
+                break
+        if not merged:
+            categorized[new_cat].append(skill)
+            new_categories.add(new_cat)
+            if verbose:
+                print(f"  |-> {name} -> [{new_cat}] (NEW CATEGORY)")
 
     # Step 5: Add built-in skills
     print("[4/5] Adding built-in skills...")
@@ -1240,6 +1268,8 @@ def regenerate(dry_run=False, verbose=False, with_usage=False, suggest_routes_fl
     stats["total"] = sum(len(skills) for skills in categorized.values())
     if new_categories:
         print(f"\n  |-> New categories: {', '.join(sorted(new_categories))}")
+        if len(manual_mapping) == 0:
+            print("  |-> TIP: All auto-detected. Edit category-mapping.txt to customize.")
     print(f"\n  |-> {stats['total']} skills, {len(categorized)} categories "
           f"({stats['local_scanned']} local + {stats['builtin_added']} builtin)")
     if stats["deleted"]:
